@@ -1,0 +1,12 @@
+# Audio & Analysis
+praat-parselmouth>=0.4.3
+sounddevice>=0.4.6
+numpy>=1.24.0
+scipy>=1.10.0
+
+# AI (Phase 2)
+google-genai>=1.0.0
+
+# CLI
+typer>=0.9.0
+rich>=13.0.0
