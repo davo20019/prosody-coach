@@ -566,15 +566,72 @@ def progress():
     console.print()
 
 
-@app.callback()
-def main():
+@app.callback(invoke_without_command=True)
+def main(ctx: typer.Context):
     """
     Prosody Coach - Improve your English speaking patterns.
 
     Analyzes 5 key components: pitch, volume, tempo, rhythm, and pauses.
     Designed for Spanish speakers learning English.
     """
-    pass
+    if ctx.invoked_subcommand is not None:
+        return
+
+    # Show interactive menu
+    show_interactive_menu()
+
+
+def show_interactive_menu():
+    """Display interactive menu for selecting actions."""
+    from rich.prompt import Prompt
+
+    menu_options = {
+        "1": ("analyze", "Record and analyze your speech"),
+        "2": ("practice", "Practice with guided prompts"),
+        "3": ("history", "View your practice history"),
+        "4": ("progress", "View your progress stats"),
+        "5": ("info", "Learn about prosody components"),
+        "6": ("tips", "Tips for Spanish speakers"),
+        "q": ("quit", "Exit"),
+    }
+
+    while True:
+        console.print()
+        console.print(Panel(
+            "[bold]Prosody Coach[/bold]\n[dim]Improve your English speaking patterns[/dim]",
+            border_style="blue",
+        ))
+        console.print()
+
+        for key, (cmd, desc) in menu_options.items():
+            if key == "q":
+                console.print(f"  [dim]{key}[/dim]  [red]{desc}[/red]")
+            else:
+                console.print(f"  [bold cyan]{key}[/bold cyan]  {desc}")
+
+        console.print()
+        choice = Prompt.ask(
+            "[bold]Select an option[/bold]",
+            choices=list(menu_options.keys()),
+            default="1",
+            show_choices=False,
+        )
+
+        if choice == "q":
+            console.print("[dim]Goodbye![/dim]\n")
+            break
+        elif choice == "1":
+            analyze(file=None, save=False, quick=False, coach=True, playback=False)
+        elif choice == "2":
+            practice(category=None, prompt_id=None, text=None, list_prompts=False, playback=False, save=False)
+        elif choice == "3":
+            history(limit=10, mode=None)
+        elif choice == "4":
+            progress()
+        elif choice == "5":
+            info()
+        elif choice == "6":
+            tips()
 
 
 if __name__ == "__main__":
