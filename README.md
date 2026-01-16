@@ -44,10 +44,23 @@ cd prosody-coach
 
 # Install dependencies
 pip install -r requirements.txt
+```
 
-# (Optional) Set up Gemini API key for AI coaching
+### Getting a Free Gemini API Key (Optional, for AI Coaching)
+
+The AI coaching feature requires a Google Gemini API key. You can get one for free:
+
+1. Go to [Google AI Studio](https://aistudio.google.com/apikey)
+2. Sign in with your Google account
+3. Click "Create API Key"
+4. Copy the key and set it as an environment variable:
+
+```bash
+# Add to your shell profile (~/.bashrc, ~/.zshrc, etc.) for persistence
 export GEMINI_API_KEY=your_api_key_here
 ```
+
+**Note:** The free tier includes generous limits for personal use. The AI coaching features (transcription, grammar correction, personalized tips) require this key. Basic prosody analysis works without it.
 
 ## Usage
 
