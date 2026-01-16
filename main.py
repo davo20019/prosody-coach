@@ -18,6 +18,7 @@ from prompts import (
     get_random_prompt,
     list_all_prompts,
 )
+from storage import save_session, get_history, get_stats, get_best_and_worst, get_session
 
 app = typer.Typer(
     name="prosody",
@@ -82,7 +83,6 @@ def analyze(
                     border_style="blue",
                 )
             )
-            console.print("[dim]Recording...[/dim]", end=" ")
 
             audio_data, sample_rate = record_audio()
             duration = get_duration(audio_data, sample_rate)
@@ -107,14 +107,31 @@ def analyze(
         else:
             display_analysis(analysis)
 
+        # Save session to database
+        transcript = None
+        ai_summary = None
+        ai_tips = None
+
         # AI coaching if enabled
         if coach:
             console.print("[dim]Getting AI coaching feedback...[/dim]")
             try:
                 coaching = analyze_with_coach(audio_data, sample_rate, analysis)
                 display_coaching(coaching, console)
+                transcript = coaching.transcript
+                ai_summary = coaching.overall_feedback
+                ai_tips = coaching.coaching_tips
             except Exception as e:
                 console.print(f"[yellow]AI coaching unavailable: {e}[/yellow]")
+
+        # Save session
+        save_session(
+            analysis,
+            mode="analyze",
+            transcript=transcript,
+            ai_summary=ai_summary,
+            ai_tips=ai_tips,
+        )
 
         # Playback if requested
         if playback:
@@ -322,7 +339,6 @@ def practice(
                 border_style="blue",
             )
         )
-        console.print("[dim]Recording...[/dim]", end=" ")
 
         # Record
         audio_data, sample_rate = record_audio()
@@ -343,6 +359,9 @@ def practice(
         display_analysis(analysis)
 
         # AI coaching with expected text comparison
+        transcript = None
+        ai_summary = None
+        ai_tips = None
         console.print("[dim]Getting AI feedback on your reading...[/dim]")
         try:
             from coach import analyze_with_coach_practice, display_coaching
@@ -350,8 +369,21 @@ def practice(
                 audio_data, sample_rate, analysis, prompt_data["text"]
             )
             display_coaching(coaching, console)
+            transcript = coaching.transcript
+            ai_summary = coaching.overall_feedback
+            ai_tips = coaching.coaching_tips
         except Exception as e:
             console.print(f"[yellow]AI feedback unavailable: {e}[/yellow]")
+
+        # Save session
+        save_session(
+            analysis,
+            mode="practice",
+            prompt_id=prompt_data.get("id"),
+            transcript=transcript,
+            ai_summary=ai_summary,
+            ai_tips=ai_tips,
+        )
 
         # Playback if requested
         if playback:
@@ -365,6 +397,173 @@ def practice(
     except Exception as e:
         console.print(f"\n[red]Error: {e}[/red]")
         raise typer.Exit(1)
+
+
+@app.command()
+def history(
+    limit: int = typer.Option(
+        10,
+        "--limit", "-n",
+        help="Number of sessions to show.",
+    ),
+    mode: Optional[str] = typer.Option(
+        None,
+        "--mode", "-m",
+        help="Filter by mode: analyze or practice.",
+    ),
+):
+    """
+    View your practice history.
+
+    Shows recent sessions with scores and timestamps.
+    """
+    from rich.table import Table
+    from datetime import datetime
+
+    sessions = get_history(limit=limit, mode=mode)
+
+    if not sessions:
+        console.print("\n[yellow]No sessions recorded yet. Run 'prosody analyze' to start.[/yellow]\n")
+        return
+
+    console.print()
+    table = Table(title="Practice History", border_style="blue")
+    table.add_column("ID", style="dim")
+    table.add_column("Date", style="dim")
+    table.add_column("Mode", style="cyan")
+    table.add_column("Duration", justify="right")
+    table.add_column("Pitch", justify="center")
+    table.add_column("Volume", justify="center")
+    table.add_column("Tempo", justify="center")
+    table.add_column("Rhythm", justify="center")
+    table.add_column("Pauses", justify="center")
+    table.add_column("Overall", justify="center", style="bold")
+
+    for s in sessions:
+        dt = datetime.fromisoformat(s["created_at"])
+        date_str = dt.strftime("%m/%d %H:%M")
+        table.add_row(
+            str(s["id"]),
+            date_str,
+            s["mode"],
+            f"{s['duration']:.0f}s",
+            str(s["pitch_score"]),
+            str(s["volume_score"]),
+            str(s["tempo_score"]),
+            str(s["rhythm_score"]),
+            str(s["pause_score"]),
+            f"{s['overall_score']:.1f}",
+        )
+
+    console.print(table)
+    console.print("[dim]Use 'prosody show <ID>' to view session details[/dim]")
+    console.print()
+
+
+@app.command()
+def show(
+    session_id: int = typer.Argument(..., help="Session ID to view"),
+):
+    """
+    View detailed feedback for a specific session.
+
+    Shows all prosody feedback and AI coaching tips.
+    """
+    from datetime import datetime
+
+    session = get_session(session_id)
+
+    if not session:
+        console.print(f"\n[red]Session {session_id} not found.[/red]\n")
+        raise typer.Exit(1)
+
+    console.print()
+    dt = datetime.fromisoformat(session["created_at"])
+    console.print(Panel(
+        f"[bold]Session {session_id}[/bold] - {dt.strftime('%B %d, %Y at %H:%M')}",
+        border_style="blue"
+    ))
+
+    # Basic info
+    console.print(f"\n[bold]Mode:[/bold] {session['mode']}")
+    console.print(f"[bold]Duration:[/bold] {session['duration']:.0f} seconds")
+    console.print(f"[bold]Overall Score:[/bold] {session['overall_score']}/10")
+
+    # Prosody feedback
+    console.print("\n[bold cyan]Prosody Analysis:[/bold cyan]")
+    console.print(f"  [bold]Pitch ({session['pitch_score']}/10):[/bold] {session.get('pitch_feedback', 'N/A')}")
+    console.print(f"  [bold]Volume ({session['volume_score']}/10):[/bold] {session.get('volume_feedback', 'N/A')}")
+    console.print(f"  [bold]Tempo ({session['tempo_score']}/10):[/bold] {session.get('tempo_feedback', 'N/A')}")
+    console.print(f"  [bold]Rhythm ({session['rhythm_score']}/10):[/bold] {session.get('rhythm_feedback', 'N/A')}")
+    console.print(f"  [bold]Pauses ({session['pause_score']}/10):[/bold] {session.get('pause_feedback', 'N/A')}")
+
+    # Transcript
+    if session.get("transcript"):
+        console.print("\n[bold cyan]Transcript:[/bold cyan]")
+        console.print(f"  {session['transcript']}")
+
+    # AI Summary
+    if session.get("ai_summary"):
+        console.print("\n[bold cyan]AI Summary:[/bold cyan]")
+        console.print(f"  {session['ai_summary']}")
+
+    # AI Tips
+    if session.get("ai_tips"):
+        console.print("\n[bold cyan]AI Coaching Tips:[/bold cyan]")
+        for tip in session["ai_tips"]:
+            console.print(f"  • {tip}")
+
+    console.print()
+
+
+@app.command()
+def progress():
+    """
+    View your progress and statistics.
+
+    Shows overall stats, averages, and trends.
+    """
+    stats = get_stats()
+
+    if stats["total_sessions"] == 0:
+        console.print("\n[yellow]No sessions recorded yet. Run 'prosody analyze' to start.[/yellow]\n")
+        return
+
+    console.print()
+    console.print(Panel("[bold]Your Progress[/bold]", border_style="green"))
+
+    # Summary stats
+    console.print(f"\n[bold]Total Sessions:[/bold] {stats['total_sessions']}")
+    console.print(f"[bold]Total Practice Time:[/bold] {stats['total_practice_time']} minutes")
+
+    # Average scores
+    if stats["averages"]:
+        console.print("\n[bold cyan]Average Scores:[/bold cyan]")
+        avg = stats["averages"]
+        console.print(f"  Pitch:   {avg['pitch']}/10")
+        console.print(f"  Volume:  {avg['volume']}/10")
+        console.print(f"  Tempo:   {avg['tempo']}/10")
+        console.print(f"  Rhythm:  {avg['rhythm']}/10")
+        console.print(f"  Pauses:  {avg['pause']}/10")
+        console.print(f"  [bold]Overall: {avg['overall']}/10[/bold]")
+
+    # Trend
+    if stats["recent_trend"] is not None:
+        trend = stats["recent_trend"]
+        if trend > 0:
+            console.print(f"\n[green]Trend: +{trend:.1f} (improving)[/green]")
+        elif trend < 0:
+            console.print(f"\n[red]Trend: {trend:.1f} (needs work)[/red]")
+        else:
+            console.print(f"\n[yellow]Trend: Steady[/yellow]")
+
+    # Best/worst components
+    bw = get_best_and_worst()
+    if bw["best"] and bw["worst"]:
+        console.print(f"\n[green]Strongest:[/green] {bw['best'][0].title()} ({bw['best'][1]}/10)")
+        console.print(f"[yellow]Focus on:[/yellow] {bw['worst'][0].title()} ({bw['worst'][1]}/10)")
+
+    console.print()
 
 
 @app.callback()

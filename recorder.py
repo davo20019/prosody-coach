@@ -3,9 +3,14 @@
 import numpy as np
 import sounddevice as sd
 import scipy.io.wavfile as wav
+import threading
+import sys
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Tuple
+
+from rich.live import Live
+from rich.text import Text
 
 from config import SAMPLE_RATE, CHANNELS, RECORDINGS_DIR
 
@@ -31,15 +36,22 @@ def record_audio(
 
 
 def _record_until_enter() -> Tuple[np.ndarray, int]:
-    """Record until user presses Enter."""
+    """Record until user presses Enter with live animation."""
     audio_chunks = []
     recording = True
+    stop_event = threading.Event()
 
     def callback(indata, frames, time, status):
-        if status:
-            print(f"Status: {status}")
         if recording:
             audio_chunks.append(indata.copy())
+
+    def wait_for_enter():
+        """Wait for Enter key in a separate thread."""
+        input()
+        stop_event.set()
+
+    # Animation frames for recording indicator
+    frames = ["⬤", "◯"]
 
     with sd.InputStream(
         samplerate=SAMPLE_RATE,
@@ -47,7 +59,24 @@ def _record_until_enter() -> Tuple[np.ndarray, int]:
         dtype=np.float32,
         callback=callback
     ):
-        input()  # Wait for Enter
+        # Start thread to wait for Enter
+        enter_thread = threading.Thread(target=wait_for_enter, daemon=True)
+        enter_thread.start()
+
+        # Show animated recording indicator
+        frame_idx = 0
+        with Live(refresh_per_second=2, transient=True) as live:
+            while not stop_event.is_set():
+                indicator = frames[frame_idx % len(frames)]
+                elapsed = len(audio_chunks) * 1024 / SAMPLE_RATE  # Approximate
+                text = Text()
+                text.append(f"  {indicator} ", style="bold red")
+                text.append("Recording", style="bold red")
+                text.append(f"  {elapsed:.1f}s", style="dim")
+                live.update(text)
+                frame_idx += 1
+                stop_event.wait(0.5)
+
         recording = False
 
     if audio_chunks:
