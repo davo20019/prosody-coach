@@ -96,6 +96,40 @@ PRACTICE_PROMPTS = {
         },
     ],
 
+    # Vowel reductions and schwa practice
+    "reductions": [
+        {
+            "id": "reductions_1",
+            "text": "I need a comfortable chair for my office. The vegetable soup was delicious, and the chocolate cake was interesting. It was definitely memorable.",
+            "tip": "Reduce: COMFterble (not com-for-ta-ble), VEJtable (not veg-e-ta-ble), CHOClit (not choc-o-late), INtresting (not in-ter-est-ing), DEFnitly (not def-i-nite-ly), MEMrable (not mem-or-a-ble).",
+            "focus": "rhythm"
+        },
+        {
+            "id": "reductions_2",
+            "text": "I want to go to a restaurant for dinner. Can you give me a cup of water? I'd like to order a salad and a sandwich.",
+            "tip": "Reduce function words: 'to' → 'tuh', 'a' → 'uh', 'for' → 'fer', 'of' → 'uv', 'and' → 'n'. These should be quick and unstressed.",
+            "focus": "rhythm"
+        },
+        {
+            "id": "reductions_3",
+            "text": "What do you want to do today? I was going to ask him, but he had to leave early. She could have told us about the problem.",
+            "tip": "'want to' → 'wanna', 'going to' → 'gonna', 'had to' → 'had tuh', 'could have' → 'coulda'. Don't pronounce every syllable clearly.",
+            "focus": "rhythm"
+        },
+        {
+            "id": "reductions_4",
+            "text": "The photograph was beautiful. She's studying photography at the university. The photographic equipment is expensive.",
+            "tip": "Notice stress shift: PHOtograph → phoTOGraphy → photoGRAphic. Unstressed syllables become schwa (uh). The vowels change completely based on stress.",
+            "focus": "rhythm, pitch"
+        },
+        {
+            "id": "reductions_5",
+            "text": "It's probably going to rain tomorrow. Actually, I think we should definitely cancel the barbecue. Everyone was planning to come, but the weather looks terrible.",
+            "tip": "Reduce: PROBly (not prob-ab-ly), ACTchully (not ac-tu-al-ly), DEFnitly (not def-i-nite-ly), BARbkyoo (not bar-be-cue), EVryone (not ev-er-y-one).",
+            "focus": "rhythm"
+        },
+    ],
+
     # Longer passages for sustained practice
     "passages": [
         {

@@ -621,7 +621,7 @@ def show_interactive_menu():
             console.print("[dim]Goodbye![/dim]\n")
             break
         elif choice == "1":
-            save = Prompt.ask("Save recording?", choices=["y", "n"], default="n") == "y"
+            save = Prompt.ask("Save recording?", choices=["y", "n"], default="y") == "y"
             playback = Prompt.ask("Play back after?", choices=["y", "n"], default="y") == "y"
             analyze(file=None, save=save, quick=False, coach=True, playback=playback)
         elif choice == "2":
@@ -642,9 +642,10 @@ def show_practice_menu(Prompt):
         "1": ("stress", "Stress - Word emphasis practice"),
         "2": ("intonation", "Intonation - Pitch patterns"),
         "3": ("rhythm", "Rhythm - Syllable timing"),
-        "4": ("professional", "Professional - Business scenarios"),
-        "5": ("passages", "Passages - Longer readings"),
-        "6": ("random", "Random - Any category"),
+        "4": ("reductions", "Reductions - Schwa and weak forms"),
+        "5": ("professional", "Professional - Business scenarios"),
+        "6": ("passages", "Passages - Longer readings"),
+        "7": ("random", "Random - Any category"),
         "b": ("back", "Back to main menu"),
     }
 
@@ -672,10 +673,10 @@ def show_practice_menu(Prompt):
     if choice == "b":
         return
 
-    save = Prompt.ask("Save recording?", choices=["y", "n"], default="n") == "y"
+    save = Prompt.ask("Save recording?", choices=["y", "n"], default="y") == "y"
     playback = Prompt.ask("Play back after?", choices=["y", "n"], default="y") == "y"
 
-    if choice == "6":
+    if choice == "7":
         practice(category=None, prompt_id=None, text=None, list_prompts=False, playback=playback, save=save)
     else:
         cat_name = categories[choice][0]
