@@ -108,21 +108,44 @@ def analyze(
             display_analysis(analysis)
 
         # Save session to database
+        import threading
         transcript = None
         ai_summary = None
         ai_tips = None
+        coaching_result = {"coaching": None, "error": None}
 
-        # AI coaching if enabled
-        if coach:
-            console.print("[dim]Getting AI coaching feedback...[/dim]")
+        def fetch_coaching():
             try:
-                coaching = analyze_with_coach(audio_data, sample_rate, analysis)
+                coaching_result["coaching"] = analyze_with_coach(audio_data, sample_rate, analysis)
+            except Exception as e:
+                coaching_result["error"] = str(e)
+
+        # Start AI coaching in background if enabled
+        ai_thread = None
+        if coach:
+            ai_thread = threading.Thread(target=fetch_coaching)
+            ai_thread.start()
+
+        # Playback while AI processes
+        if playback:
+            msg = "[dim]Playing back (AI processing in background)...[/dim]" if coach else "[dim]Playing back your recording...[/dim]"
+            console.print(msg)
+            play_audio(audio_data, sample_rate)
+
+        # Wait for AI to finish if still running
+        if ai_thread:
+            if ai_thread.is_alive():
+                console.print("[dim]Waiting for AI feedback...[/dim]")
+            ai_thread.join()
+
+            if coaching_result["coaching"]:
+                coaching = coaching_result["coaching"]
                 display_coaching(coaching, console)
                 transcript = coaching.transcript
                 ai_summary = coaching.overall_feedback
                 ai_tips = coaching.coaching_tips
-            except Exception as e:
-                console.print(f"[yellow]AI coaching unavailable: {e}[/yellow]")
+            elif coaching_result["error"]:
+                console.print(f"[yellow]AI coaching unavailable: {coaching_result['error']}[/yellow]")
 
         # Save session
         save_session(
@@ -132,12 +155,6 @@ def analyze(
             ai_summary=ai_summary,
             ai_tips=ai_tips,
         )
-
-        # Playback if requested
-        if playback:
-            console.print("[dim]Playing back your recording...[/dim]")
-            play_audio(audio_data, sample_rate)
-            console.print("[green]Playback complete.[/green]\n")
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Recording cancelled.[/yellow]")
@@ -358,22 +375,46 @@ def practice(
         analysis = analyze_prosody(audio_data, sample_rate)
         display_analysis(analysis)
 
-        # AI coaching with expected text comparison
+        # Start AI request in background while playing back
+        import threading
+        from coach import analyze_with_coach_practice, display_coaching
+
         transcript = None
         ai_summary = None
         ai_tips = None
-        console.print("[dim]Getting AI feedback on your reading...[/dim]")
-        try:
-            from coach import analyze_with_coach_practice, display_coaching
-            coaching = analyze_with_coach_practice(
-                audio_data, sample_rate, analysis, prompt_data["text"]
-            )
+        coaching_result = {"coaching": None, "error": None}
+
+        def fetch_coaching():
+            try:
+                coaching_result["coaching"] = analyze_with_coach_practice(
+                    audio_data, sample_rate, analysis, prompt_data["text"]
+                )
+            except Exception as e:
+                coaching_result["error"] = str(e)
+
+        # Start AI request in background
+        ai_thread = threading.Thread(target=fetch_coaching)
+        ai_thread.start()
+
+        # Playback while AI processes
+        if playback:
+            console.print("[dim]Playing back (AI processing in background)...[/dim]")
+            play_audio(audio_data, sample_rate)
+
+        # Wait for AI to finish if still running
+        if ai_thread.is_alive():
+            console.print("[dim]Waiting for AI feedback...[/dim]")
+        ai_thread.join()
+
+        # Display AI coaching results
+        if coaching_result["coaching"]:
+            coaching = coaching_result["coaching"]
             display_coaching(coaching, console)
             transcript = coaching.transcript
             ai_summary = coaching.overall_feedback
             ai_tips = coaching.coaching_tips
-        except Exception as e:
-            console.print(f"[yellow]AI feedback unavailable: {e}[/yellow]")
+        elif coaching_result["error"]:
+            console.print(f"[yellow]AI feedback unavailable: {coaching_result['error']}[/yellow]")
 
         # Save session
         save_session(
@@ -384,12 +425,6 @@ def practice(
             ai_summary=ai_summary,
             ai_tips=ai_tips,
         )
-
-        # Playback if requested
-        if playback:
-            console.print("[dim]Playing back your recording...[/dim]")
-            play_audio(audio_data, sample_rate)
-            console.print("[green]Playback complete.[/green]\n")
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Practice cancelled.[/yellow]")
@@ -676,11 +711,21 @@ def show_practice_menu(Prompt):
     save = Prompt.ask("Save recording?", choices=["y", "n"], default="y") == "y"
     playback = Prompt.ask("Play back after?", choices=["y", "n"], default="y") == "y"
 
-    if choice == "7":
-        practice(category=None, prompt_id=None, text=None, list_prompts=False, playback=playback, save=save)
-    else:
-        cat_name = categories[choice][0]
-        practice(category=cat_name, prompt_id=None, text=None, list_prompts=False, playback=playback, save=save)
+    cat_name = None if choice == "7" else categories[choice][0]
+
+    # Practice loop - keep going until user quits
+    while True:
+        try:
+            practice(category=cat_name, prompt_id=None, text=None, list_prompts=False, playback=playback, save=save)
+        except SystemExit:
+            pass  # Typer raises SystemExit on errors, ignore it
+
+        console.print()
+        console.print("[dim]─" * 40 + "[/dim]")
+        action = Prompt.ask("Press Enter for next prompt, q to quit", default="", show_default=False)
+
+        if action.lower() == "q":
+            break
 
 
 if __name__ == "__main__":
