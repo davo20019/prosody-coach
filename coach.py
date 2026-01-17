@@ -132,7 +132,7 @@ def analyze_with_coach(
     # Configure generation
     generate_config = types.GenerateContentConfig(
         temperature=0.3,  # Lower temperature for more consistent analysis
-        max_output_tokens=4096,
+        max_output_tokens=8192,
     )
 
     # Call Gemini
@@ -177,7 +177,7 @@ def analyze_with_coach_practice(
 
     generate_config = types.GenerateContentConfig(
         temperature=0.3,
-        max_output_tokens=4096,
+        max_output_tokens=8192,
     )
 
     response = client.models.generate_content(
