@@ -1035,10 +1035,11 @@ LEVEL_PASS:
 [YES/NO] | [Reason - did this attempt meet Level {level} requirements? Consider rhythm score >= {min_rhythm_score} and appropriate technique use]
 
 TECHNIQUE_TIP:
-[Provide a technique tip with TWO parts:]
-[1. WHY: Explain why this matters for English rhythm (e.g., "English listeners expect function words to be nearly invisible - when they're too prominent, it disrupts the stress-timed rhythm and makes speech sound choppy")]
-[2. HOW: One specific, actionable tip for the "{drill_technique}" technique that would improve this attempt]
-[Keep it concise but include both the motivation and the action]
+[Provide a technique tip with THREE parts:]
+[1. THE RULE: Briefly explain how to identify which words to stress vs reduce. Content words (nouns, main verbs, adjectives, adverbs, question words) carry meaning and get STRESS. Function words (articles, prepositions, pronouns, auxiliary verbs, conjunctions) are grammatical glue and get REDUCED. Example from this drill: identify 2-3 content words and 2-3 function words.]
+[2. WHY IT MATTERS: Explain why this matters for English rhythm (e.g., "When function words are too prominent, it disrupts the stress-timed rhythm and sounds choppy to native ears")]
+[3. HOW TO PRACTICE: One specific, actionable tip for the "{drill_technique}" technique that would improve this attempt]
+[Keep each part to 1-2 sentences]
 
 ENCOURAGEMENT:
 [Brief encouraging message about their progress]
