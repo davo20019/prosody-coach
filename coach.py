@@ -32,6 +32,8 @@ class CoachingResult:
     pronunciation_issues: list[dict] = None  # [{"sound": "th", "example": "think", "ipa": "/θ/", "tip": "..."}]
     fluency_score: int = 0  # 1-10 scale for smoothness/flow
     fluency_feedback: str = ""  # Explanation of fluency assessment
+    # AI-perceived prosody analysis (from listening to audio)
+    ai_prosody: dict = None  # {"pitch": {"score": 7, "feedback": "..."}, "rhythm": {...}, ...}
 
 
 def get_client() -> genai.Client:
@@ -255,6 +257,17 @@ FLUENCY:
 [10 = Native-like fluency (effortless, natural speech flow)]
 [Format: SCORE | explanation of fluency assessment]
 
+AI_PROSODY:
+[Analyze the audio directly and provide YOUR perception of these prosody elements (independent of the algorithmic scores above):]
+[Format each line as: CATEGORY: SCORE/10 | your observation]
+- PITCH: [Score 1-10] | [Is there enough pitch variation? Does intonation sound natural for English? Rising/falling patterns?]
+- VOLUME: [Score 1-10] | [Is volume appropriate? Good stress contrast between emphasized and unstressed syllables?]
+- TEMPO: [Score 1-10] | [Is the pace natural? Too fast/slow? Good variation for emphasis?]
+- RHYTHM: [Score 1-10] | [Does it have English stress-timed rhythm? Or syllable-timed like Spanish? Word stress correct?]
+- PAUSES: [Score 1-10] | [Are pauses placed naturally at phrase boundaries? Too many/few pauses?]
+- NATURALNESS: [Score 1-10] | [Overall, how natural does this sound to a native English ear?]
+[Add a brief note if your perception differs significantly from the algorithmic scores above]
+
 OVERALL:
 [Evaluate their reading: Did they read the correct text? How was their pronunciation? What's the #1 thing to practice?]
 """
@@ -322,6 +335,17 @@ FLUENCY:
 [10 = Native-like fluency (effortless, natural speech flow)]
 [Format: SCORE | explanation of fluency assessment]
 
+AI_PROSODY:
+[Analyze the audio directly and provide YOUR perception of these prosody elements (independent of the algorithmic scores above):]
+[Format each line as: CATEGORY: SCORE/10 | your observation]
+- PITCH: [Score 1-10] | [Is there enough pitch variation? Does intonation sound natural for English? Rising/falling patterns?]
+- VOLUME: [Score 1-10] | [Is volume appropriate? Good stress contrast between emphasized and unstressed syllables?]
+- TEMPO: [Score 1-10] | [Is the pace natural? Too fast/slow? Good variation for emphasis?]
+- RHYTHM: [Score 1-10] | [Does it have English stress-timed rhythm? Or syllable-timed like Spanish? Word stress correct?]
+- PAUSES: [Score 1-10] | [Are pauses placed naturally at phrase boundaries? Too many/few pauses?]
+- NATURALNESS: [Score 1-10] | [Overall, how natural does this sound to a native English ear?]
+[Add a brief note if your perception differs significantly from the algorithmic scores above]
+
 OVERALL:
 [One paragraph summary of strengths and the #1 thing to focus on improving]
 """
@@ -338,6 +362,7 @@ def parse_coaching_response(response_text: str) -> CoachingResult:
         "FILLER_WORDS:": "",
         "PRONUNCIATION_ISSUES:": "",
         "FLUENCY:": "",
+        "AI_PROSODY:": "",
         "OVERALL:": "",
     }
 
@@ -491,6 +516,44 @@ def parse_coaching_response(response_text: str) -> CoachingResult:
                 fluency_score = min(10, max(1, int(numbers[0])))
             fluency_feedback = fluency_text
 
+    # Parse AI prosody analysis
+    ai_prosody = {}
+    ai_prosody_text = sections["AI_PROSODY:"].strip()
+    if ai_prosody_text:
+        prosody_categories = ["PITCH", "VOLUME", "TEMPO", "RHYTHM", "PAUSES", "NATURALNESS"]
+        for line in ai_prosody_text.split("\n"):
+            line = line.strip()
+            if not line or line.startswith("["):
+                continue
+            # Remove leading dash/bullet
+            if line.startswith("-"):
+                line = line[1:].strip()
+            # Check for each category
+            for category in prosody_categories:
+                if line.upper().startswith(category):
+                    # Format: "CATEGORY: SCORE | feedback" or "CATEGORY: SCORE/10 | feedback"
+                    rest = line[len(category):].strip()
+                    if rest.startswith(":"):
+                        rest = rest[1:].strip()
+                    score = 0
+                    feedback = rest
+                    if "|" in rest:
+                        score_part, feedback = rest.split("|", 1)
+                        feedback = feedback.strip()
+                        # Extract number from score part
+                        numbers = re.findall(r'\d+', score_part)
+                        if numbers:
+                            score = min(10, max(1, int(numbers[0])))
+                    else:
+                        numbers = re.findall(r'\b(\d+)\b', rest)
+                        if numbers:
+                            score = min(10, max(1, int(numbers[0])))
+                    ai_prosody[category.lower()] = {
+                        "score": score,
+                        "feedback": feedback
+                    }
+                    break
+
     return CoachingResult(
         transcript=sections["TRANSCRIPT:"].strip(),
         grammar_issues=grammar_issues,
@@ -504,6 +567,7 @@ def parse_coaching_response(response_text: str) -> CoachingResult:
         pronunciation_issues=pronunciation_issues,
         fluency_score=fluency_score,
         fluency_feedback=fluency_feedback,
+        ai_prosody=ai_prosody if ai_prosody else None,
     )
 
 
@@ -623,6 +687,41 @@ def display_coaching(result: CoachingResult, console) -> None:
             console.print(f"  [red]•[/red] [bold]{sound}[/bold]: {example}{ipa_display}")
             if tip:
                 console.print(f"    [dim]{tip}[/dim]")
+
+    # AI Prosody Analysis (perceived from audio)
+    if result.ai_prosody:
+        console.print()
+        table = Table(
+            title="[bold cyan]AI PROSODY ANALYSIS[/bold cyan] [dim](perceived from audio)[/dim]",
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold",
+        )
+        table.add_column("Aspect", style="cyan", width=12)
+        table.add_column("Score", justify="center", width=8)
+        table.add_column("AI Observation", style="dim")
+
+        # Order for display
+        display_order = ["pitch", "volume", "tempo", "rhythm", "pauses", "naturalness"]
+        for category in display_order:
+            if category in result.ai_prosody:
+                data = result.ai_prosody[category]
+                score = data.get("score", 0)
+                feedback = data.get("feedback", "")
+                # Color based on score
+                if score >= 7:
+                    score_display = f"[green]{score}/10[/green]"
+                elif score >= 5:
+                    score_display = f"[yellow]{score}/10[/yellow]"
+                else:
+                    score_display = f"[red]{score}/10[/red]"
+                # Capitalize category name
+                cat_display = category.capitalize()
+                if category == "naturalness":
+                    cat_display = "[bold]Naturalness[/bold]"
+                table.add_row(cat_display, score_display, feedback[:80] + "..." if len(feedback) > 80 else feedback)
+
+        console.print(table)
 
     # Overall feedback
     if result.overall_feedback:
