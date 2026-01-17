@@ -353,6 +353,14 @@ OVERALL:
 
 def parse_coaching_response(response_text: str) -> CoachingResult:
     """Parse Gemini's response into structured CoachingResult."""
+    # Debug: Check if AI_PROSODY section exists in response
+    import os
+    if os.environ.get("PROSODY_DEBUG"):
+        print(f"\n[DEBUG] Response length: {len(response_text)} chars")
+        print(f"[DEBUG] Contains AI_PROSODY: {'AI_PROSODY' in response_text}")
+        print(f"[DEBUG] Contains OVERALL: {'OVERALL' in response_text}")
+        print(f"[DEBUG] Last 500 chars: ...{response_text[-500:]}")
+
     sections = {
         "TRANSCRIPT:": "",
         "GRAMMAR_ISSUES:": "",
