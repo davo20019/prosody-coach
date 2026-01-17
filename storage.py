@@ -91,6 +91,27 @@ def init_db():
             ON sound_tracking(next_review)
         """)
 
+        # Word tracking table for mispronounced words
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS word_tracking (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                word TEXT UNIQUE NOT NULL,
+                ipa TEXT,
+                related_sound TEXT,
+                first_seen TEXT NOT NULL,
+                times_mispronounced INTEGER DEFAULT 1,
+                times_practiced INTEGER DEFAULT 0,
+                times_correct INTEGER DEFAULT 0,
+                last_practiced TEXT,
+                interval_days REAL DEFAULT 1.0,
+                next_review TEXT NOT NULL
+            )
+        """)
+        db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_word_tracking_next_review
+            ON word_tracking(next_review)
+        """)
+
 
 def save_session(
     analysis,
@@ -187,7 +208,7 @@ def save_session(
         )
         session_id = cursor.lastrowid
 
-    # Track pronunciation issues for spaced repetition
+    # Track pronunciation issues for spaced repetition (sounds)
     if pronunciation_issues:
         for issue in pronunciation_issues:
             sound = issue.get("sound", "")
@@ -195,6 +216,28 @@ def save_session(
             example = issue.get("example", "")
             if sound:
                 track_sound(sound, ipa, example)
+
+            # Also track the specific mispronounced word
+            if example:
+                # Extract word from example (format: "word /IPA/" or just "word")
+                import re
+                word_match = re.match(r'^([a-zA-Z]+)', example)
+                if word_match:
+                    word = word_match.group(1)
+                    track_word(word, ipa, sound)
+
+    # Track mispronounced words from grammar issues (format: "said X" -> "should be Y")
+    if grammar_issues:
+        for issue in grammar_issues:
+            corrected = issue.get("corrected", "")
+            explanation = issue.get("explanation", "")
+            # Extract the corrected word if it's a pronunciation issue
+            if corrected and ("pronounc" in explanation.lower() or "sound" in explanation.lower()):
+                import re
+                word_match = re.match(r'^([a-zA-Z]+)', corrected.strip())
+                if word_match:
+                    word = word_match.group(1)
+                    track_word(word, "", "")
 
     return session_id
 
@@ -752,4 +795,193 @@ def get_sound_stats() -> dict:
             "mastered": mastered,
             "needs_work": needs_work,
             "problem_sounds": [dict(row) for row in problem_sounds],
+        }
+
+
+# =============================================================================
+# Spaced Repetition for Mispronounced Words
+# =============================================================================
+
+def track_word(word: str, ipa: str = "", related_sound: str = "") -> None:
+    """
+    Track a mispronounced word for spaced repetition.
+
+    Args:
+        word: The word that was mispronounced (e.g., "strength", "strategic")
+        ipa: IPA pronunciation (e.g., "/strɛŋkθ/")
+        related_sound: The sound category this relates to (e.g., "th", "consonant cluster")
+    """
+    init_db()
+
+    # Clean the word - extract just the word if it has IPA
+    import re
+    clean_word = word.strip().lower()
+    # Remove IPA notation if present
+    clean_word = re.sub(r'/[^/]+/', '', clean_word).strip()
+    # Remove quotes
+    clean_word = clean_word.strip('"\'')
+
+    if not clean_word or len(clean_word) < 2:
+        return
+
+    today = date.today().isoformat()
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+
+    with get_db() as db:
+        existing = db.execute(
+            "SELECT id, times_mispronounced FROM word_tracking WHERE word = ?",
+            (clean_word,)
+        ).fetchone()
+
+        if existing:
+            db.execute(
+                """
+                UPDATE word_tracking
+                SET times_mispronounced = times_mispronounced + 1,
+                    ipa = COALESCE(NULLIF(?, ''), ipa),
+                    related_sound = COALESCE(NULLIF(?, ''), related_sound)
+                WHERE word = ?
+                """,
+                (ipa, related_sound, clean_word)
+            )
+        else:
+            db.execute(
+                """
+                INSERT INTO word_tracking (
+                    word, ipa, related_sound, first_seen,
+                    times_mispronounced, next_review
+                ) VALUES (?, ?, ?, ?, 1, ?)
+                """,
+                (clean_word, ipa, related_sound, today, tomorrow)
+            )
+
+
+def get_due_words(limit: int = 10) -> list[dict]:
+    """
+    Get words that are due for review today or earlier.
+
+    Returns:
+        List of word dictionaries ordered by priority (most overdue first)
+    """
+    init_db()
+
+    today = date.today().isoformat()
+
+    with get_db() as db:
+        rows = db.execute(
+            """
+            SELECT
+                word, ipa, related_sound, times_mispronounced,
+                times_practiced, times_correct, interval_days, next_review
+            FROM word_tracking
+            WHERE next_review <= ?
+            ORDER BY next_review ASC, times_mispronounced DESC
+            LIMIT ?
+            """,
+            (today, limit)
+        ).fetchall()
+
+        return [dict(row) for row in rows]
+
+
+def update_word_after_practice(word: str, was_correct: bool) -> None:
+    """
+    Update a word's spaced repetition schedule after practice.
+
+    Args:
+        word: The word that was practiced
+        was_correct: Whether the user pronounced it correctly
+    """
+    init_db()
+
+    clean_word = word.strip().lower()
+    today = date.today().isoformat()
+
+    with get_db() as db:
+        row = db.execute(
+            "SELECT interval_days, times_practiced, times_correct FROM word_tracking WHERE word = ?",
+            (clean_word,)
+        ).fetchone()
+
+        if not row:
+            return
+
+        current_interval = row["interval_days"]
+        times_practiced = row["times_practiced"]
+        times_correct = row["times_correct"]
+
+        if was_correct:
+            new_interval = min(current_interval * 2, 30.0)
+            times_correct += 1
+        else:
+            new_interval = 1.0
+
+        times_practiced += 1
+        next_review = (date.today() + timedelta(days=new_interval)).isoformat()
+
+        db.execute(
+            """
+            UPDATE word_tracking
+            SET interval_days = ?,
+                next_review = ?,
+                last_practiced = ?,
+                times_practiced = ?,
+                times_correct = ?
+            WHERE word = ?
+            """,
+            (new_interval, next_review, today, times_practiced, times_correct, clean_word)
+        )
+
+
+def get_word_stats() -> dict:
+    """Get aggregate statistics about tracked words."""
+    init_db()
+
+    today = date.today().isoformat()
+
+    with get_db() as db:
+        total = db.execute(
+            "SELECT COUNT(*) as count FROM word_tracking"
+        ).fetchone()["count"]
+
+        if total == 0:
+            return {
+                "total_words": 0,
+                "due_today": 0,
+                "mastered": 0,
+                "needs_work": 0,
+            }
+
+        due = db.execute(
+            "SELECT COUNT(*) as count FROM word_tracking WHERE next_review <= ?",
+            (today,)
+        ).fetchone()["count"]
+
+        mastered = db.execute(
+            "SELECT COUNT(*) as count FROM word_tracking WHERE interval_days >= 14"
+        ).fetchone()["count"]
+
+        needs_work = db.execute(
+            """
+            SELECT COUNT(*) as count FROM word_tracking
+            WHERE interval_days <= 2 AND times_practiced > 0
+            """
+        ).fetchone()["count"]
+
+        problem_words = db.execute(
+            """
+            SELECT word, ipa, times_mispronounced, times_correct, times_practiced
+            FROM word_tracking
+            WHERE times_mispronounced >= 2
+            ORDER BY times_mispronounced DESC
+            LIMIT 5
+            """
+        ).fetchall()
+
+        return {
+            "total_words": total,
+            "due_today": due,
+            "mastered": mastered,
+            "needs_work": needs_work,
+            "problem_words": [dict(row) for row in problem_words],
         }

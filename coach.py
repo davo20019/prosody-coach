@@ -735,16 +735,17 @@ def display_coaching(result: CoachingResult, console) -> None:
     console.print()
 
 
-def generate_tailored_prompt(weaknesses: dict, due_sounds: list[dict] = None) -> dict:
+def generate_tailored_prompt(weaknesses: dict, due_sounds: list[dict] = None, due_words: list[dict] = None) -> dict:
     """
     Generate a tailored practice prompt based on user's weaknesses.
 
     Args:
         weaknesses: Dictionary from get_user_weaknesses()
         due_sounds: Optional list of sounds due for spaced repetition review
+        due_words: Optional list of mispronounced words due for review
 
     Returns:
-        Dictionary with 'text', 'focus_areas', 'difficulty', and 'target_sounds'
+        Dictionary with 'text', 'focus_areas', 'difficulty', 'target_sounds', and 'target_words'
     """
     client = get_client()
 
@@ -760,7 +761,18 @@ def generate_tailored_prompt(weaknesses: dict, due_sounds: list[dict] = None) ->
     if prosody_focuses:
         focus_descriptions.append(f"Prosody: {', '.join(prosody_focuses)}")
 
-    # Priority 1: Due sounds from spaced repetition (these need immediate practice)
+    # Priority 1: Due words from spaced repetition (specific mispronounced words)
+    target_words = []
+    if due_words:
+        for w in due_words[:5]:  # Top 5 due words
+            word = w.get("word", "")
+            ipa = w.get("ipa", "")
+            if word:
+                target_words.append({"word": word, "ipa": ipa})
+        due_word_list = [w["word"] for w in target_words]
+        focus_descriptions.insert(0, f"MUST INCLUDE WORDS: {', '.join(due_word_list)}")
+
+    # Priority 2: Due sounds from spaced repetition (these need immediate practice)
     target_sounds = []
     if due_sounds:
         for s in due_sounds[:3]:  # Top 3 due sounds
@@ -769,9 +781,9 @@ def generate_tailored_prompt(weaknesses: dict, due_sounds: list[dict] = None) ->
             if sound:
                 target_sounds.append({"sound": sound, "ipa": ipa})
         due_sound_names = [s["sound"] for s in target_sounds]
-        focus_descriptions.insert(0, f"PRIORITY - Due for review: {', '.join(due_sound_names)}")
+        focus_descriptions.insert(0 if not target_words else 1, f"PRIORITY SOUNDS: {', '.join(due_sound_names)}")
 
-    # Priority 2: Pronunciation focuses from weaknesses analysis
+    # Priority 3: Pronunciation focuses from weaknesses analysis
     pron_sounds = [f["sound"] for f in focus_areas if f["type"] == "pronunciation"]
     if not pron_sounds and recurring_sounds:
         pron_sounds = [s[0] for s in recurring_sounds[:3]]
@@ -918,4 +930,5 @@ think /θɪŋk/, weather /ˈweðər/, rather /ˈræðər/, throughout /θruːˈa
         "difficulty": difficulty,
         "id": f"tailored_{difficulty}",
         "target_sounds": target_sounds,  # For spaced repetition tracking
+        "target_words": target_words,  # Specific mispronounced words to practice
     }
