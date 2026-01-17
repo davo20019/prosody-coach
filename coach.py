@@ -8,7 +8,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
 import numpy as np
-import scipy.io.wavfile as wav
+import soundfile as sf
 
 from google import genai
 from google.genai import types
@@ -64,17 +64,17 @@ def extract_text_from_response(response) -> str:
 
 
 def audio_to_base64(audio_data: np.ndarray, sample_rate: int) -> str:
-    """Convert audio numpy array to base64-encoded WAV."""
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-        # Convert to 16-bit PCM
-        audio_int16 = (audio_data * 32767).astype(np.int16)
-        wav.write(f.name, sample_rate, audio_int16)
+    """Convert audio numpy array to base64-encoded FLAC (compressed, lossless)."""
+    with tempfile.NamedTemporaryFile(suffix=".flac", delete=False) as f:
+        temp_path = f.name
+        # Save as FLAC (50-60% smaller than WAV, lossless quality)
+        sf.write(temp_path, audio_data, sample_rate, format='flac')
 
-        with open(f.name, "rb") as audio_file:
+        with open(temp_path, "rb") as audio_file:
             audio_bytes = audio_file.read()
 
         # Clean up temp file
-        Path(f.name).unlink()
+        Path(temp_path).unlink()
 
     return base64.b64encode(audio_bytes).decode("utf-8")
 
@@ -110,7 +110,7 @@ def analyze_with_coach(
             parts=[
                 types.Part.from_bytes(
                     data=base64.b64decode(audio_b64),
-                    mime_type="audio/wav"
+                    mime_type="audio/flac"
                 ),
                 types.Part.from_text(text=prompt),
             ],
@@ -156,7 +156,7 @@ def analyze_with_coach_practice(
             parts=[
                 types.Part.from_bytes(
                     data=base64.b64decode(audio_b64),
-                    mime_type="audio/wav"
+                    mime_type="audio/flac"
                 ),
                 types.Part.from_text(text=prompt),
             ],

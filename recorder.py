@@ -2,7 +2,7 @@
 
 import numpy as np
 import sounddevice as sd
-import scipy.io.wavfile as wav
+import soundfile as sf
 import threading
 import sys
 import io
@@ -179,7 +179,7 @@ def save_recording(
     filename: Optional[str] = None
 ) -> Path:
     """
-    Save recorded audio to a WAV file.
+    Save recorded audio to a FLAC file (compressed, lossless).
 
     Args:
         audio_data: Audio data as numpy array
@@ -191,34 +191,28 @@ def save_recording(
     """
     if filename is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"recording_{timestamp}.wav"
+        filename = f"recording_{timestamp}.flac"
 
     filepath = RECORDINGS_DIR / filename
 
-    # Convert to 16-bit PCM for WAV file
-    audio_int16 = (audio_data * 32767).astype(np.int16)
-    wav.write(filepath, sample_rate, audio_int16)
+    # Save as FLAC (lossless compression, ~50-60% smaller than WAV)
+    sf.write(filepath, audio_data, sample_rate, format='flac')
 
     return filepath
 
 
 def load_audio(filepath: Path) -> Tuple[np.ndarray, int]:
     """
-    Load audio from a WAV file.
+    Load audio from any supported format (FLAC, WAV, MP3, OGG, etc.).
 
     Args:
-        filepath: Path to WAV file
+        filepath: Path to audio file
 
     Returns:
         Tuple of (audio_data as numpy array, sample_rate)
     """
-    sample_rate, audio_data = wav.read(filepath)
-
-    # Convert to float32 normalized to [-1, 1]
-    if audio_data.dtype == np.int16:
-        audio_data = audio_data.astype(np.float32) / 32767
-    elif audio_data.dtype == np.int32:
-        audio_data = audio_data.astype(np.float32) / 2147483647
+    # soundfile handles FLAC, WAV, OGG, and more
+    audio_data, sample_rate = sf.read(filepath, dtype='float32')
 
     # Convert stereo to mono if needed
     if len(audio_data.shape) > 1:
