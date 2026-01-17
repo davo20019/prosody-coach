@@ -626,15 +626,16 @@ def display_coaching(result: CoachingResult, console) -> None:
     console.print()
 
 
-def generate_tailored_prompt(weaknesses: dict) -> dict:
+def generate_tailored_prompt(weaknesses: dict, due_sounds: list[dict] = None) -> dict:
     """
     Generate a tailored practice prompt based on user's weaknesses.
 
     Args:
         weaknesses: Dictionary from get_user_weaknesses()
+        due_sounds: Optional list of sounds due for spaced repetition review
 
     Returns:
-        Dictionary with 'text', 'focus_areas', and 'difficulty'
+        Dictionary with 'text', 'focus_areas', 'difficulty', and 'target_sounds'
     """
     client = get_client()
 
@@ -650,10 +651,28 @@ def generate_tailored_prompt(weaknesses: dict) -> dict:
     if prosody_focuses:
         focus_descriptions.append(f"Prosody: {', '.join(prosody_focuses)}")
 
-    # Pronunciation focuses
+    # Priority 1: Due sounds from spaced repetition (these need immediate practice)
+    target_sounds = []
+    if due_sounds:
+        for s in due_sounds[:3]:  # Top 3 due sounds
+            sound = s.get("sound", "")
+            ipa = s.get("ipa", "")
+            if sound:
+                target_sounds.append({"sound": sound, "ipa": ipa})
+        due_sound_names = [s["sound"] for s in target_sounds]
+        focus_descriptions.insert(0, f"PRIORITY - Due for review: {', '.join(due_sound_names)}")
+
+    # Priority 2: Pronunciation focuses from weaknesses analysis
     pron_sounds = [f["sound"] for f in focus_areas if f["type"] == "pronunciation"]
     if not pron_sounds and recurring_sounds:
         pron_sounds = [s[0] for s in recurring_sounds[:3]]
+
+    # Add pron_sounds that aren't already in target_sounds
+    existing_sounds = {s["sound"] for s in target_sounds}
+    for sound in pron_sounds:
+        if sound not in existing_sounds:
+            target_sounds.append({"sound": sound, "ipa": ""})
+
     if pron_sounds:
         focus_descriptions.append(f"Sounds: {', '.join(pron_sounds)}")
 
@@ -789,4 +808,5 @@ think /θɪŋk/, weather /ˈweðər/, rather /ˈræðər/, throughout /θruːˈa
         "focus_areas": [f["description"] for f in focus_areas],
         "difficulty": difficulty,
         "id": f"tailored_{difficulty}",
+        "target_sounds": target_sounds,  # For spaced repetition tracking
     }

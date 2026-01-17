@@ -2,7 +2,7 @@
 
 import sqlite3
 import json
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from typing import Optional
 from config import DB_PATH
 
@@ -69,6 +69,27 @@ def init_db():
                 db.execute(f"ALTER TABLE sessions ADD COLUMN {col} TEXT")
             except sqlite3.OperationalError:
                 pass  # Column already exists
+
+        # Sound tracking table for spaced repetition
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS sound_tracking (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sound TEXT UNIQUE NOT NULL,
+                ipa TEXT,
+                example_word TEXT,
+                first_seen TEXT NOT NULL,
+                times_encountered INTEGER DEFAULT 1,
+                times_practiced INTEGER DEFAULT 0,
+                times_correct INTEGER DEFAULT 0,
+                last_practiced TEXT,
+                interval_days REAL DEFAULT 1.0,
+                next_review TEXT NOT NULL
+            )
+        """)
+        db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sound_tracking_next_review
+            ON sound_tracking(next_review)
+        """)
 
 
 def save_session(
@@ -164,7 +185,18 @@ def save_session(
                 fluency_feedback,
             ),
         )
-        return cursor.lastrowid
+        session_id = cursor.lastrowid
+
+    # Track pronunciation issues for spaced repetition
+    if pronunciation_issues:
+        for issue in pronunciation_issues:
+            sound = issue.get("sound", "")
+            ipa = issue.get("ipa", "")
+            example = issue.get("example", "")
+            if sound:
+                track_sound(sound, ipa, example)
+
+    return session_id
 
 
 def get_history(limit: int = 10, mode: Optional[str] = None) -> list[dict]:
@@ -500,4 +532,224 @@ def get_user_weaknesses(limit: int = 10) -> dict:
             "avg_fluency": round(avg_fluency, 1) if avg_fluency else None,
             "avg_fillers": round(avg_fillers, 1) if avg_fillers else None,
             "recurring_sounds": recurring_sounds[:5],
+        }
+
+
+# =============================================================================
+# Spaced Repetition for Pronunciation
+# =============================================================================
+
+def track_sound(sound: str, ipa: str = "", example_word: str = "") -> None:
+    """
+    Track a pronunciation issue for spaced repetition.
+
+    If the sound already exists, increment times_encountered.
+    If new, add it with next_review set to tomorrow.
+
+    Args:
+        sound: The sound that needs practice (e.g., "th", "v", "short i")
+        ipa: IPA representation (e.g., "/θ/")
+        example_word: Example word containing this sound
+    """
+    init_db()
+
+    today = date.today().isoformat()
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+
+    with get_db() as db:
+        # Check if sound already exists
+        existing = db.execute(
+            "SELECT id, times_encountered FROM sound_tracking WHERE sound = ?",
+            (sound,)
+        ).fetchone()
+
+        if existing:
+            # Increment encounter count
+            db.execute(
+                """
+                UPDATE sound_tracking
+                SET times_encountered = times_encountered + 1
+                WHERE sound = ?
+                """,
+                (sound,)
+            )
+        else:
+            # Add new sound
+            db.execute(
+                """
+                INSERT INTO sound_tracking (
+                    sound, ipa, example_word, first_seen,
+                    times_encountered, next_review
+                ) VALUES (?, ?, ?, ?, 1, ?)
+                """,
+                (sound, ipa, example_word, today, tomorrow)
+            )
+
+
+def get_due_sounds(limit: int = 10) -> list[dict]:
+    """
+    Get sounds that are due for review today or earlier.
+
+    Args:
+        limit: Maximum number of sounds to return
+
+    Returns:
+        List of sound dictionaries ordered by priority (most overdue first)
+    """
+    init_db()
+
+    today = date.today().isoformat()
+
+    with get_db() as db:
+        rows = db.execute(
+            """
+            SELECT
+                sound, ipa, example_word, times_encountered,
+                times_practiced, times_correct, interval_days, next_review
+            FROM sound_tracking
+            WHERE next_review <= ?
+            ORDER BY next_review ASC, times_encountered DESC
+            LIMIT ?
+            """,
+            (today, limit)
+        ).fetchall()
+
+        return [dict(row) for row in rows]
+
+
+def get_all_tracked_sounds() -> list[dict]:
+    """Get all tracked sounds with their stats."""
+    init_db()
+
+    with get_db() as db:
+        rows = db.execute(
+            """
+            SELECT
+                sound, ipa, example_word, first_seen,
+                times_encountered, times_practiced, times_correct,
+                interval_days, next_review
+            FROM sound_tracking
+            ORDER BY times_encountered DESC
+            """
+        ).fetchall()
+
+        return [dict(row) for row in rows]
+
+
+def update_sound_after_practice(sound: str, was_correct: bool) -> None:
+    """
+    Update a sound's spaced repetition schedule after practice.
+
+    Uses a simplified SM-2 algorithm:
+    - Correct: double the interval (max 30 days)
+    - Incorrect: reset interval to 1 day
+
+    Args:
+        sound: The sound that was practiced
+        was_correct: Whether the user pronounced it correctly
+    """
+    init_db()
+
+    today = date.today().isoformat()
+
+    with get_db() as db:
+        # Get current interval
+        row = db.execute(
+            "SELECT interval_days, times_practiced, times_correct FROM sound_tracking WHERE sound = ?",
+            (sound,)
+        ).fetchone()
+
+        if not row:
+            return
+
+        current_interval = row["interval_days"]
+        times_practiced = row["times_practiced"]
+        times_correct = row["times_correct"]
+
+        if was_correct:
+            # Double the interval, max 30 days
+            new_interval = min(current_interval * 2, 30.0)
+            times_correct += 1
+        else:
+            # Reset to 1 day
+            new_interval = 1.0
+
+        times_practiced += 1
+        next_review = (date.today() + timedelta(days=new_interval)).isoformat()
+
+        db.execute(
+            """
+            UPDATE sound_tracking
+            SET interval_days = ?,
+                next_review = ?,
+                last_practiced = ?,
+                times_practiced = ?,
+                times_correct = ?
+            WHERE sound = ?
+            """,
+            (new_interval, next_review, today, times_practiced, times_correct, sound)
+        )
+
+
+def get_sound_stats() -> dict:
+    """
+    Get aggregate statistics about tracked sounds.
+
+    Returns:
+        Dictionary with sound tracking stats
+    """
+    init_db()
+
+    today = date.today().isoformat()
+
+    with get_db() as db:
+        # Total sounds tracked
+        total = db.execute(
+            "SELECT COUNT(*) as count FROM sound_tracking"
+        ).fetchone()["count"]
+
+        if total == 0:
+            return {
+                "total_sounds": 0,
+                "due_today": 0,
+                "mastered": 0,
+                "needs_work": 0,
+            }
+
+        # Sounds due today
+        due = db.execute(
+            "SELECT COUNT(*) as count FROM sound_tracking WHERE next_review <= ?",
+            (today,)
+        ).fetchone()["count"]
+
+        # Mastered sounds (interval >= 14 days)
+        mastered = db.execute(
+            "SELECT COUNT(*) as count FROM sound_tracking WHERE interval_days >= 14"
+        ).fetchone()["count"]
+
+        # Needs work (interval <= 2 days and practiced at least once)
+        needs_work = db.execute(
+            """
+            SELECT COUNT(*) as count FROM sound_tracking
+            WHERE interval_days <= 2 AND times_practiced > 0
+            """
+        ).fetchone()["count"]
+
+        # Most problematic sounds
+        problem_sounds = db.execute(
+            """
+            SELECT sound, ipa, times_encountered, times_correct, times_practiced
+            FROM sound_tracking
+            WHERE times_practiced > 0
+            ORDER BY (CAST(times_correct AS REAL) / times_practiced) ASC
+            LIMIT 3
+            """
+        ).fetchall()
+
+        return {
+            "total_sounds": total,
+            "due_today": due,
+            "mastered": mastered,
+            "needs_work": needs_work,
+            "problem_sounds": [dict(row) for row in problem_sounds],
         }

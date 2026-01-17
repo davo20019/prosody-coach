@@ -18,7 +18,10 @@ from prompts import (
     get_random_prompt,
     list_all_prompts,
 )
-from storage import save_session, get_history, get_stats, get_best_and_worst, get_session, get_user_weaknesses
+from storage import (
+    save_session, get_history, get_stats, get_best_and_worst, get_session,
+    get_user_weaknesses, get_due_sounds, update_sound_after_practice, get_sound_stats
+)
 
 app = typer.Typer(
     name="prosody",
@@ -862,7 +865,7 @@ def main(ctx: typer.Context):
 def show_interactive_menu():
     """Display interactive menu for selecting actions."""
     from rich.prompt import Prompt
-    from storage import get_user_weaknesses
+    from storage import get_user_weaknesses, get_due_sounds, get_sound_stats
 
     menu_options = {
         "1": ("analyze", "Record and analyze your speech"),
@@ -884,6 +887,19 @@ def show_interactive_menu():
 
         # Check for tailored training nudge
         weaknesses = get_user_weaknesses(limit=10)
+
+        # Check for due sounds (spaced repetition)
+        due_sounds = get_due_sounds(limit=10)
+        sound_stats = get_sound_stats()
+
+        if due_sounds:
+            console.print()
+            due_count = len(due_sounds)
+            sounds_preview = ", ".join([s["sound"] for s in due_sounds[:3]])
+            if due_count > 3:
+                sounds_preview += f" +{due_count - 3} more"
+            console.print(f"[bold red]🔔 {due_count} sounds due for review:[/bold red] [yellow]{sounds_preview}[/yellow]")
+
         if weaknesses.get("sufficient_data") and weaknesses.get("focus_areas"):
             focus_count = len(weaknesses["focus_areas"])
             console.print()
@@ -896,8 +912,10 @@ def show_interactive_menu():
             if key == "q":
                 console.print(f"  [dim]{key}[/dim]  [red]{desc}[/red]")
             elif key == "3":
-                # Highlight tailored training if data is available
-                if weaknesses.get("sufficient_data"):
+                # Highlight tailored training if data is available or sounds are due
+                if due_sounds:
+                    console.print(f"  [bold red]{key}[/bold red]  [red]{desc}[/red] 🔔 {len(due_sounds)} due")
+                elif weaknesses.get("sufficient_data"):
                     console.print(f"  [bold green]{key}[/bold green]  [green]{desc}[/green] ✨")
                 else:
                     console.print(f"  [dim]{key}[/dim]  [dim]{desc} (need 3+ sessions)[/dim]")
@@ -938,7 +956,7 @@ def run_tailored_training(Prompt, weaknesses: dict):
     from coach import generate_tailored_prompt, analyze_with_coach_practice, display_coaching
     from analyzer import analyze_prosody
     from recorder import record_audio, play_audio, get_duration, save_recording, play_tts
-    from storage import save_session
+    from storage import save_session, get_due_sounds, update_sound_after_practice
 
     if not weaknesses.get("sufficient_data"):
         console.print()
@@ -952,13 +970,19 @@ def run_tailored_training(Prompt, weaknesses: dict):
         ))
         return
 
+    # Get sounds due for spaced repetition review
+    due_sounds = get_due_sounds(limit=5)
+
     console.print()
-    console.print(Panel(
+    info_text = (
         "[bold green]Tailored Training[/bold green]\n\n"
         f"[dim]Difficulty:[/dim] [bold]{weaknesses['difficulty'].title()}[/bold]\n"
-        f"[dim]Based on:[/dim] {weaknesses['session_count']} sessions",
-        border_style="green",
-    ))
+        f"[dim]Based on:[/dim] {weaknesses['session_count']} sessions"
+    )
+    if due_sounds:
+        info_text += f"\n[dim]Sounds due for review:[/dim] [bold yellow]{len(due_sounds)}[/bold yellow]"
+
+    console.print(Panel(info_text, border_style="green"))
 
     # Show focus areas
     if weaknesses.get("focus_areas"):
@@ -967,17 +991,28 @@ def run_tailored_training(Prompt, weaknesses: dict):
         for focus in weaknesses["focus_areas"]:
             console.print(f"  [yellow]•[/yellow] {focus['description']}")
 
+    # Show due sounds
+    if due_sounds:
+        console.print()
+        console.print("[bold]Sounds due for review (spaced repetition):[/bold]")
+        for s in due_sounds[:5]:
+            ipa = f" {s['ipa']}" if s.get('ipa') else ""
+            console.print(f"  [red]•[/red] {s['sound']}{ipa}")
+
     console.print()
     save = Prompt.ask("Save recordings?", choices=["y", "n"], default="y") == "y"
     playback = Prompt.ask("Play back after?", choices=["y", "n"], default="y") == "y"
 
     # Training loop
     while True:
+        # Refresh due sounds each iteration
+        due_sounds = get_due_sounds(limit=5)
+
         console.print()
         console.print("[dim]Generating tailored prompt...[/dim]")
 
         try:
-            prompt_data = generate_tailored_prompt(weaknesses)
+            prompt_data = generate_tailored_prompt(weaknesses, due_sounds=due_sounds)
         except Exception as e:
             console.print(f"[red]Error generating prompt: {e}[/red]")
             return
@@ -1094,6 +1129,29 @@ def run_tailored_training(Prompt, weaknesses: dict):
             fluency_score=fluency_score,
             fluency_feedback=fluency_feedback,
         )
+
+        # Update spaced repetition for target sounds
+        target_sounds = prompt_data.get("target_sounds", [])
+        if target_sounds:
+            # Get sounds that were flagged as issues in this session
+            flagged_sounds = set()
+            if pronunciation_issues:
+                for issue in pronunciation_issues:
+                    flagged_sounds.add(issue.get("sound", "").lower())
+
+            console.print()
+            console.print("[bold]Spaced repetition update:[/bold]")
+            # Update each target sound based on whether it was flagged
+            for target in target_sounds:
+                sound = target.get("sound", "")
+                if sound:
+                    # Sound was correct if it wasn't flagged as an issue
+                    was_correct = sound.lower() not in flagged_sounds
+                    update_sound_after_practice(sound, was_correct)
+                    if was_correct:
+                        console.print(f"  [green]✓[/green] '{sound}' - correct! (interval increased)")
+                    else:
+                        console.print(f"  [red]✗[/red] '{sound}' - needs more practice (interval reset)")
 
         console.print()
         console.print("[dim]─" * 40 + "[/dim]")
