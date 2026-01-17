@@ -7,7 +7,7 @@ from rich.panel import Panel
 from pathlib import Path
 from typing import Optional
 
-from recorder import record_audio, save_recording, load_audio, get_duration, play_audio
+from recorder import record_audio, save_recording, load_audio, get_duration, play_audio, play_tts
 from analyzer import analyze_prosody
 from feedback import display_analysis, display_quick_feedback
 from coach import analyze_with_coach, display_coaching
@@ -18,7 +18,7 @@ from prompts import (
     get_random_prompt,
     list_all_prompts,
 )
-from storage import save_session, get_history, get_stats, get_best_and_worst, get_session
+from storage import save_session, get_history, get_stats, get_best_and_worst, get_session, get_user_weaknesses
 
 app = typer.Typer(
     name="prosody",
@@ -112,6 +112,15 @@ def analyze(
         transcript = None
         ai_summary = None
         ai_tips = None
+        grammar_issues = None
+        suggested_revision = None
+        confidence_score = None
+        confidence_feedback = None
+        filler_word_count = None
+        filler_words_detail = None
+        pronunciation_issues = None
+        fluency_score = None
+        fluency_feedback = None
         coaching_result = {"coaching": None, "error": None}
 
         def fetch_coaching():
@@ -144,6 +153,15 @@ def analyze(
                 transcript = coaching.transcript
                 ai_summary = coaching.overall_feedback
                 ai_tips = coaching.coaching_tips
+                grammar_issues = coaching.grammar_issues
+                suggested_revision = coaching.suggested_revision
+                confidence_score = coaching.confidence_score
+                confidence_feedback = coaching.confidence_feedback
+                filler_word_count = coaching.filler_word_count
+                filler_words_detail = coaching.filler_words_detail
+                pronunciation_issues = coaching.pronunciation_issues
+                fluency_score = coaching.fluency_score
+                fluency_feedback = coaching.fluency_feedback
             elif coaching_result["error"]:
                 console.print(f"[yellow]AI coaching unavailable: {coaching_result['error']}[/yellow]")
 
@@ -154,6 +172,15 @@ def analyze(
             transcript=transcript,
             ai_summary=ai_summary,
             ai_tips=ai_tips,
+            grammar_issues=grammar_issues,
+            suggested_revision=suggested_revision,
+            confidence_score=confidence_score,
+            confidence_feedback=confidence_feedback,
+            filler_word_count=filler_word_count,
+            filler_words_detail=filler_words_detail,
+            pronunciation_issues=pronunciation_issues,
+            fluency_score=fluency_score,
+            fluency_feedback=fluency_feedback,
         )
 
     except KeyboardInterrupt:
@@ -348,6 +375,12 @@ def practice(
         if prompt_data.get("focus"):
             console.print(f"[dim]Focus: {prompt_data['focus']}[/dim]")
 
+        # Play reference audio (TTS)
+        console.print()
+        console.print("[bold cyan]🔊 Listen first...[/bold cyan]")
+        if not play_tts(prompt_data["text"]):
+            console.print("[dim]TTS unavailable - skipping reference audio[/dim]")
+
         console.print()
         console.print(
             Panel(
@@ -382,6 +415,15 @@ def practice(
         transcript = None
         ai_summary = None
         ai_tips = None
+        grammar_issues = None
+        suggested_revision = None
+        confidence_score = None
+        confidence_feedback = None
+        filler_word_count = None
+        filler_words_detail = None
+        pronunciation_issues = None
+        fluency_score = None
+        fluency_feedback = None
         coaching_result = {"coaching": None, "error": None}
 
         def fetch_coaching():
@@ -413,6 +455,15 @@ def practice(
             transcript = coaching.transcript
             ai_summary = coaching.overall_feedback
             ai_tips = coaching.coaching_tips
+            grammar_issues = coaching.grammar_issues
+            suggested_revision = coaching.suggested_revision
+            confidence_score = coaching.confidence_score
+            confidence_feedback = coaching.confidence_feedback
+            filler_word_count = coaching.filler_word_count
+            filler_words_detail = coaching.filler_words_detail
+            pronunciation_issues = coaching.pronunciation_issues
+            fluency_score = coaching.fluency_score
+            fluency_feedback = coaching.fluency_feedback
         elif coaching_result["error"]:
             console.print(f"[yellow]AI feedback unavailable: {coaching_result['error']}[/yellow]")
 
@@ -424,6 +475,15 @@ def practice(
             transcript=transcript,
             ai_summary=ai_summary,
             ai_tips=ai_tips,
+            grammar_issues=grammar_issues,
+            suggested_revision=suggested_revision,
+            confidence_score=confidence_score,
+            confidence_feedback=confidence_feedback,
+            filler_word_count=filler_word_count,
+            filler_words_detail=filler_words_detail,
+            pronunciation_issues=pronunciation_issues,
+            fluency_score=fluency_score,
+            fluency_feedback=fluency_feedback,
         )
 
     except KeyboardInterrupt:
@@ -432,6 +492,189 @@ def practice(
     except Exception as e:
         console.print(f"\n[red]Error: {e}[/red]")
         raise typer.Exit(1)
+
+
+@app.command()
+def train(
+    playback: bool = typer.Option(
+        True,
+        "--playback/--no-playback", "-p/-P",
+        help="Play back your recording after analysis.",
+    ),
+    save: bool = typer.Option(
+        True,
+        "--save/--no-save", "-s/-S",
+        help="Save recordings to disk.",
+    ),
+):
+    """
+    Start a tailored training session based on your practice history.
+
+    Analyzes your past sessions to identify weak areas and generates
+    custom practice prompts targeting your specific needs.
+    """
+    from rich.prompt import Prompt
+    from coach import generate_tailored_prompt, analyze_with_coach_practice, display_coaching
+    from recorder import play_tts
+
+    weaknesses = get_user_weaknesses(limit=10)
+
+    if not weaknesses.get("sufficient_data"):
+        console.print()
+        console.print(Panel(
+            "[yellow]Not enough data yet![/yellow]\n\n"
+            f"You have {weaknesses.get('session_count', 0)} sessions. "
+            "Complete at least 3 sessions to unlock tailored training.\n\n"
+            "[dim]Try 'prosody analyze' or 'prosody practice' first.[/dim]",
+            title="[bold]Tailored Training[/bold]",
+            border_style="yellow",
+        ))
+        raise typer.Exit(0)
+
+    console.print()
+    console.print(Panel(
+        "[bold green]Tailored Training[/bold green]\n\n"
+        f"[dim]Difficulty:[/dim] [bold]{weaknesses['difficulty'].title()}[/bold]\n"
+        f"[dim]Based on:[/dim] {weaknesses['session_count']} sessions",
+        border_style="green",
+    ))
+
+    # Show focus areas
+    if weaknesses.get("focus_areas"):
+        console.print()
+        console.print("[bold]Focus areas for this session:[/bold]")
+        for focus in weaknesses["focus_areas"]:
+            console.print(f"  [yellow]•[/yellow] {focus['description']}")
+
+    # Training loop
+    while True:
+        console.print()
+        console.print("[dim]Generating tailored prompt...[/dim]")
+
+        try:
+            prompt_data = generate_tailored_prompt(weaknesses)
+        except Exception as e:
+            console.print(f"[red]Error generating prompt: {e}[/red]")
+            raise typer.Exit(1)
+
+        console.print()
+        # Build display with key sounds if available
+        display_text = f"[bold]{prompt_data['text']}[/bold]"
+        if prompt_data.get("key_sounds"):
+            display_text += f"\n\n[dim]Key sounds:[/dim] [yellow]{prompt_data['key_sounds']}[/yellow]"
+
+        console.print(Panel(
+            display_text,
+            title="[bold cyan]READ THIS ALOUD[/bold cyan]",
+            border_style="cyan",
+        ))
+
+        # Speak the reference
+        console.print()
+        console.print("[dim]Playing reference audio...[/dim]")
+        play_tts(prompt_data["text"])
+
+        # Record user
+        console.print()
+        try:
+            audio_data, sample_rate = record_audio()
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Training cancelled.[/yellow]")
+            raise typer.Exit(0)
+
+        duration = get_duration(audio_data, sample_rate)
+        console.print(f"[green]Done![/green] ({duration:.1f} seconds)\n")
+
+        if duration < 1.0:
+            console.print("[red]Recording too short. Please read the full text.[/red]")
+            continue
+
+        if save:
+            filepath = save_recording(audio_data, sample_rate)
+            console.print(f"[dim]Saved to: {filepath}[/dim]\n")
+
+        # Analyze prosody
+        console.print("[dim]Analyzing prosody...[/dim]")
+        analysis = analyze_prosody(audio_data, sample_rate)
+        display_analysis(analysis)
+
+        # AI coaching (parallel with playback)
+        import threading
+        transcript = None
+        ai_summary = None
+        ai_tips = None
+        grammar_issues = None
+        suggested_revision = None
+        confidence_score = None
+        confidence_feedback = None
+        filler_word_count = None
+        filler_words_detail = None
+        pronunciation_issues = None
+        fluency_score = None
+        fluency_feedback = None
+        coaching_result = {"coaching": None, "error": None}
+
+        def fetch_coaching():
+            try:
+                coaching_result["coaching"] = analyze_with_coach_practice(
+                    audio_data, sample_rate, analysis, prompt_data["text"]
+                )
+            except Exception as e:
+                coaching_result["error"] = str(e)
+
+        ai_thread = threading.Thread(target=fetch_coaching)
+        ai_thread.start()
+
+        if playback:
+            console.print("[dim]Playing back (AI processing in background)...[/dim]")
+            play_audio(audio_data, sample_rate)
+
+        if ai_thread.is_alive():
+            console.print("[dim]Waiting for AI feedback...[/dim]")
+        ai_thread.join()
+
+        if coaching_result["coaching"]:
+            coaching = coaching_result["coaching"]
+            display_coaching(coaching, console)
+            transcript = coaching.transcript
+            ai_summary = coaching.overall_feedback
+            ai_tips = coaching.coaching_tips
+            grammar_issues = coaching.grammar_issues
+            suggested_revision = coaching.suggested_revision
+            confidence_score = coaching.confidence_score
+            confidence_feedback = coaching.confidence_feedback
+            filler_word_count = coaching.filler_word_count
+            filler_words_detail = coaching.filler_words_detail
+            pronunciation_issues = coaching.pronunciation_issues
+            fluency_score = coaching.fluency_score
+            fluency_feedback = coaching.fluency_feedback
+        elif coaching_result["error"]:
+            console.print(f"[yellow]AI feedback unavailable: {coaching_result['error']}[/yellow]")
+
+        # Save session
+        save_session(
+            analysis,
+            mode="practice",
+            prompt_id=prompt_data.get("id"),
+            transcript=transcript,
+            ai_summary=ai_summary,
+            ai_tips=ai_tips,
+            grammar_issues=grammar_issues,
+            suggested_revision=suggested_revision,
+            confidence_score=confidence_score,
+            confidence_feedback=confidence_feedback,
+            filler_word_count=filler_word_count,
+            filler_words_detail=filler_words_detail,
+            pronunciation_issues=pronunciation_issues,
+            fluency_score=fluency_score,
+            fluency_feedback=fluency_feedback,
+        )
+
+        console.print()
+        console.print("[dim]─" * 40 + "[/dim]")
+        action = Prompt.ask("Press Enter for next prompt, q to quit", default="", show_default=False)
+        if action.lower() == "q":
+            break
 
 
 @app.command()
@@ -619,14 +862,16 @@ def main(ctx: typer.Context):
 def show_interactive_menu():
     """Display interactive menu for selecting actions."""
     from rich.prompt import Prompt
+    from storage import get_user_weaknesses
 
     menu_options = {
         "1": ("analyze", "Record and analyze your speech"),
         "2": ("practice", "Practice with guided prompts"),
-        "3": ("history", "View your practice history"),
-        "4": ("progress", "View your progress stats"),
-        "5": ("info", "Learn about prosody components"),
-        "6": ("tips", "Tips for Spanish speakers"),
+        "3": ("train", "Tailored training (based on your history)"),
+        "4": ("history", "View your practice history"),
+        "5": ("progress", "View your progress stats"),
+        "6": ("info", "Learn about prosody components"),
+        "7": ("tips", "Tips for Spanish speakers"),
         "q": ("quit", "Exit"),
     }
 
@@ -636,11 +881,26 @@ def show_interactive_menu():
             "[bold]Prosody Coach[/bold]\n[dim]Improve your English speaking patterns[/dim]",
             border_style="blue",
         ))
+
+        # Check for tailored training nudge
+        weaknesses = get_user_weaknesses(limit=10)
+        if weaknesses.get("sufficient_data") and weaknesses.get("focus_areas"):
+            focus_count = len(weaknesses["focus_areas"])
+            console.print()
+            console.print(f"[bold green]💡 Tip:[/bold green] [dim]You have {weaknesses['session_count']} sessions. "
+                          f"Try [bold]Tailored training[/bold] to focus on {focus_count} identified areas![/dim]")
+
         console.print()
 
         for key, (cmd, desc) in menu_options.items():
             if key == "q":
                 console.print(f"  [dim]{key}[/dim]  [red]{desc}[/red]")
+            elif key == "3":
+                # Highlight tailored training if data is available
+                if weaknesses.get("sufficient_data"):
+                    console.print(f"  [bold green]{key}[/bold green]  [green]{desc}[/green] ✨")
+                else:
+                    console.print(f"  [dim]{key}[/dim]  [dim]{desc} (need 3+ sessions)[/dim]")
             else:
                 console.print(f"  [bold cyan]{key}[/bold cyan]  {desc}")
 
@@ -662,13 +922,191 @@ def show_interactive_menu():
         elif choice == "2":
             show_practice_menu(Prompt)
         elif choice == "3":
-            history(limit=10, mode=None)
+            run_tailored_training(Prompt, weaknesses)
         elif choice == "4":
-            progress()
+            history(limit=10, mode=None)
         elif choice == "5":
-            info()
+            progress()
         elif choice == "6":
+            info()
+        elif choice == "7":
             tips()
+
+
+def run_tailored_training(Prompt, weaknesses: dict):
+    """Run tailored training session based on user's weaknesses."""
+    from coach import generate_tailored_prompt, analyze_with_coach_practice, display_coaching
+    from analyzer import analyze_prosody
+    from recorder import record_audio, play_audio, get_duration, save_recording, play_tts
+    from storage import save_session
+
+    if not weaknesses.get("sufficient_data"):
+        console.print()
+        console.print(Panel(
+            "[yellow]Not enough data yet![/yellow]\n\n"
+            f"You have {weaknesses.get('session_count', 0)} sessions. "
+            "Complete at least 3 sessions to unlock tailored training.\n\n"
+            "[dim]Try 'Record and analyze' or 'Practice with prompts' first.[/dim]",
+            title="[bold]Tailored Training[/bold]",
+            border_style="yellow",
+        ))
+        return
+
+    console.print()
+    console.print(Panel(
+        "[bold green]Tailored Training[/bold green]\n\n"
+        f"[dim]Difficulty:[/dim] [bold]{weaknesses['difficulty'].title()}[/bold]\n"
+        f"[dim]Based on:[/dim] {weaknesses['session_count']} sessions",
+        border_style="green",
+    ))
+
+    # Show focus areas
+    if weaknesses.get("focus_areas"):
+        console.print()
+        console.print("[bold]Focus areas for this session:[/bold]")
+        for focus in weaknesses["focus_areas"]:
+            console.print(f"  [yellow]•[/yellow] {focus['description']}")
+
+    console.print()
+    save = Prompt.ask("Save recordings?", choices=["y", "n"], default="y") == "y"
+    playback = Prompt.ask("Play back after?", choices=["y", "n"], default="y") == "y"
+
+    # Training loop
+    while True:
+        console.print()
+        console.print("[dim]Generating tailored prompt...[/dim]")
+
+        try:
+            prompt_data = generate_tailored_prompt(weaknesses)
+        except Exception as e:
+            console.print(f"[red]Error generating prompt: {e}[/red]")
+            return
+
+        console.print()
+        # Build display with key sounds if available
+        display_text = f"[bold]{prompt_data['text']}[/bold]"
+        if prompt_data.get("key_sounds"):
+            display_text += f"\n\n[dim]Key sounds:[/dim] [yellow]{prompt_data['key_sounds']}[/yellow]"
+
+        console.print(Panel(
+            display_text,
+            title="[bold cyan]READ THIS ALOUD[/bold cyan]",
+            border_style="cyan",
+        ))
+
+        # Speak the reference
+        console.print()
+        console.print("[dim]Playing reference audio...[/dim]")
+        play_tts(prompt_data["text"])
+
+        # Record user
+        console.print()
+        try:
+            audio_data, sample_rate = record_audio()
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Recording cancelled.[/yellow]")
+            break
+
+        duration = get_duration(audio_data, sample_rate)
+        console.print(f"[green]Done![/green] ({duration:.1f} seconds)\n")
+
+        if duration < 1.0:
+            console.print("[red]Recording too short. Please read the full text.[/red]")
+            continue
+
+        if save:
+            filepath = save_recording(audio_data, sample_rate)
+            console.print(f"[dim]Saved to: {filepath}[/dim]\n")
+
+        # Analyze prosody
+        console.print("[dim]Analyzing prosody...[/dim]")
+        analysis = analyze_prosody(audio_data, sample_rate)
+        display_analysis(analysis)
+
+        # AI coaching (parallel with playback)
+        import threading
+        transcript = None
+        ai_summary = None
+        ai_tips = None
+        grammar_issues = None
+        suggested_revision = None
+        confidence_score = None
+        confidence_feedback = None
+        filler_word_count = None
+        filler_words_detail = None
+        pronunciation_issues = None
+        fluency_score = None
+        fluency_feedback = None
+        coaching_result = {"coaching": None, "error": None}
+
+        def fetch_coaching():
+            try:
+                coaching_result["coaching"] = analyze_with_coach_practice(
+                    audio_data, sample_rate, analysis, prompt_data["text"]
+                )
+            except Exception as e:
+                coaching_result["error"] = str(e)
+
+        ai_thread = threading.Thread(target=fetch_coaching)
+        ai_thread.start()
+
+        if playback:
+            console.print("[dim]Playing back (AI processing in background)...[/dim]")
+            play_audio(audio_data, sample_rate)
+
+        if ai_thread.is_alive():
+            console.print("[dim]Waiting for AI feedback...[/dim]")
+        ai_thread.join()
+
+        if coaching_result["coaching"]:
+            coaching = coaching_result["coaching"]
+            display_coaching(coaching, console)
+            transcript = coaching.transcript
+            ai_summary = coaching.overall_feedback
+            ai_tips = coaching.coaching_tips
+            grammar_issues = coaching.grammar_issues
+            suggested_revision = coaching.suggested_revision
+            confidence_score = coaching.confidence_score
+            confidence_feedback = coaching.confidence_feedback
+            filler_word_count = coaching.filler_word_count
+            filler_words_detail = coaching.filler_words_detail
+            pronunciation_issues = coaching.pronunciation_issues
+            fluency_score = coaching.fluency_score
+            fluency_feedback = coaching.fluency_feedback
+        elif coaching_result["error"]:
+            console.print(f"[yellow]AI feedback unavailable: {coaching_result['error']}[/yellow]")
+
+        # Save session
+        save_session(
+            analysis,
+            mode="practice",
+            prompt_id=prompt_data.get("id"),
+            transcript=transcript,
+            ai_summary=ai_summary,
+            ai_tips=ai_tips,
+            grammar_issues=grammar_issues,
+            suggested_revision=suggested_revision,
+            confidence_score=confidence_score,
+            confidence_feedback=confidence_feedback,
+            filler_word_count=filler_word_count,
+            filler_words_detail=filler_words_detail,
+            pronunciation_issues=pronunciation_issues,
+            fluency_score=fluency_score,
+            fluency_feedback=fluency_feedback,
+        )
+
+        console.print()
+        console.print("[dim]─" * 40 + "[/dim]")
+
+        # Drain any pending stdin
+        import sys
+        import select
+        while select.select([sys.stdin], [], [], 0)[0]:
+            sys.stdin.readline()
+
+        action = Prompt.ask("Press Enter for next prompt, q to quit", default="", show_default=False)
+        if action.lower() == "q":
+            break
 
 
 def show_practice_menu(Prompt):
@@ -722,6 +1160,13 @@ def show_practice_menu(Prompt):
 
         console.print()
         console.print("[dim]─" * 40 + "[/dim]")
+
+        # Drain any pending stdin (from orphaned input() in recording thread)
+        import sys
+        import select
+        while select.select([sys.stdin], [], [], 0)[0]:
+            sys.stdin.readline()
+
         action = Prompt.ask("Press Enter for next prompt, q to quit", default="", show_default=False)
 
         if action.lower() == "q":

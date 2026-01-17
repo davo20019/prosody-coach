@@ -37,7 +37,16 @@ def init_db():
                 rhythm_feedback TEXT,
                 pause_feedback TEXT,
                 ai_summary TEXT,
-                ai_tips TEXT
+                ai_tips TEXT,
+                grammar_issues TEXT,
+                suggested_revision TEXT,
+                confidence_score INTEGER,
+                confidence_feedback TEXT,
+                filler_word_count INTEGER,
+                filler_words_detail TEXT,
+                pronunciation_issues TEXT,
+                fluency_score INTEGER,
+                fluency_feedback TEXT
             )
         """)
         db.execute("""
@@ -49,7 +58,11 @@ def init_db():
         new_columns = [
             "pitch_feedback", "volume_feedback", "tempo_feedback",
             "rhythm_feedback", "pause_feedback",
-            "ai_summary", "ai_tips"
+            "ai_summary", "ai_tips",
+            "grammar_issues", "suggested_revision",
+            "confidence_score", "confidence_feedback",
+            "filler_word_count", "filler_words_detail",
+            "pronunciation_issues", "fluency_score", "fluency_feedback"
         ]
         for col in new_columns:
             try:
@@ -65,6 +78,15 @@ def save_session(
     transcript: Optional[str] = None,
     ai_summary: Optional[str] = None,
     ai_tips: Optional[list[str]] = None,
+    grammar_issues: Optional[list[dict]] = None,
+    suggested_revision: Optional[str] = None,
+    confidence_score: Optional[int] = None,
+    confidence_feedback: Optional[str] = None,
+    filler_word_count: Optional[int] = None,
+    filler_words_detail: Optional[str] = None,
+    pronunciation_issues: Optional[list[dict]] = None,
+    fluency_score: Optional[int] = None,
+    fluency_feedback: Optional[str] = None,
 ) -> int:
     """
     Save an analysis session to the database.
@@ -76,6 +98,15 @@ def save_session(
         transcript: AI transcription (if available)
         ai_summary: AI overall feedback/summary
         ai_tips: List of AI coaching tips
+        grammar_issues: List of grammar issues from AI
+        suggested_revision: AI suggested revision of speech
+        confidence_score: Vocal confidence score (1-10)
+        confidence_feedback: Explanation of confidence assessment
+        filler_word_count: Count of filler words
+        filler_words_detail: Details about filler words used
+        pronunciation_issues: List of pronunciation issues
+        fluency_score: Fluency score (1-10)
+        fluency_feedback: Explanation of fluency assessment
 
     Returns:
         Session ID
@@ -84,6 +115,8 @@ def save_session(
 
     data = analysis.to_dict()
     tips_json = json.dumps(ai_tips) if ai_tips else None
+    grammar_json = json.dumps(grammar_issues) if grammar_issues else None
+    pron_json = json.dumps(pronunciation_issues) if pronunciation_issues else None
 
     with get_db() as db:
         cursor = db.execute(
@@ -94,8 +127,12 @@ def save_session(
                 mode, prompt_id, transcript,
                 pitch_feedback, volume_feedback, tempo_feedback,
                 rhythm_feedback, pause_feedback,
-                ai_summary, ai_tips
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ai_summary, ai_tips,
+                grammar_issues, suggested_revision,
+                confidence_score, confidence_feedback,
+                filler_word_count, filler_words_detail,
+                pronunciation_issues, fluency_score, fluency_feedback
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 datetime.now().isoformat(),
@@ -116,6 +153,15 @@ def save_session(
                 analysis.pauses.feedback,
                 ai_summary,
                 tips_json,
+                grammar_json,
+                suggested_revision,
+                confidence_score,
+                confidence_feedback,
+                filler_word_count,
+                filler_words_detail,
+                pron_json,
+                fluency_score,
+                fluency_feedback,
             ),
         )
         return cursor.lastrowid
@@ -250,9 +296,13 @@ def get_session(session_id: int) -> Optional[dict]:
 
         if row:
             result = dict(row)
-            # Parse JSON tips back to list
+            # Parse JSON fields back to lists
             if result.get("ai_tips"):
                 result["ai_tips"] = json.loads(result["ai_tips"])
+            if result.get("grammar_issues"):
+                result["grammar_issues"] = json.loads(result["grammar_issues"])
+            if result.get("pronunciation_issues"):
+                result["pronunciation_issues"] = json.loads(result["pronunciation_issues"])
             return result
         return None
 
@@ -291,4 +341,163 @@ def get_best_and_worst() -> dict:
         return {
             "best": (best, round(scores[best], 1)),
             "worst": (worst, round(scores[worst], 1)),
+        }
+
+
+def get_user_weaknesses(limit: int = 10) -> dict:
+    """
+    Analyze recent sessions to identify user's weak areas for tailored training.
+
+    Args:
+        limit: Number of recent sessions to analyze
+
+    Returns:
+        Dictionary with identified weaknesses and recommendations
+    """
+    init_db()
+
+    with get_db() as db:
+        # Get session count
+        count = db.execute("SELECT COUNT(*) as count FROM sessions").fetchone()["count"]
+
+        if count < 3:
+            return {"sufficient_data": False, "session_count": count}
+
+        # Get recent sessions
+        rows = db.execute(
+            """
+            SELECT
+                pitch_score, volume_score, tempo_score, rhythm_score, pause_score,
+                confidence_score, fluency_score, filler_word_count,
+                pronunciation_issues
+            FROM sessions
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+        # Calculate average scores
+        prosody_scores = {
+            "pitch": [],
+            "volume": [],
+            "tempo": [],
+            "rhythm": [],
+            "pause": [],
+        }
+        confidence_scores = []
+        fluency_scores = []
+        filler_counts = []
+        all_pronunciation_issues = []
+
+        for row in rows:
+            prosody_scores["pitch"].append(row["pitch_score"])
+            prosody_scores["volume"].append(row["volume_score"])
+            prosody_scores["tempo"].append(row["tempo_score"])
+            prosody_scores["rhythm"].append(row["rhythm_score"])
+            prosody_scores["pause"].append(row["pause_score"])
+
+            if row["confidence_score"]:
+                try:
+                    confidence_scores.append(int(row["confidence_score"]))
+                except (ValueError, TypeError):
+                    pass
+            if row["fluency_score"]:
+                try:
+                    fluency_scores.append(int(row["fluency_score"]))
+                except (ValueError, TypeError):
+                    pass
+            if row["filler_word_count"]:
+                try:
+                    filler_counts.append(int(row["filler_word_count"]))
+                except (ValueError, TypeError):
+                    pass
+            if row["pronunciation_issues"]:
+                issues = json.loads(row["pronunciation_issues"])
+                all_pronunciation_issues.extend(issues)
+
+        # Calculate averages
+        avg_prosody = {k: sum(v) / len(v) if v else 0 for k, v in prosody_scores.items()}
+        avg_confidence = sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0
+        avg_fluency = sum(fluency_scores) / len(fluency_scores) if fluency_scores else 0
+        avg_fillers = sum(filler_counts) / len(filler_counts) if filler_counts else 0
+
+        # Identify weak prosody areas (score < 6)
+        weak_prosody = [(k, round(v, 1)) for k, v in avg_prosody.items() if v < 6]
+        weak_prosody.sort(key=lambda x: x[1])  # Sort by score ascending
+
+        # Count recurring pronunciation issues
+        sound_counts = {}
+        for issue in all_pronunciation_issues:
+            sound = issue.get("sound", "unknown")
+            sound_counts[sound] = sound_counts.get(sound, 0) + 1
+
+        # Get top pronunciation issues (appeared more than once)
+        recurring_sounds = [(sound, count) for sound, count in sound_counts.items() if count > 1]
+        recurring_sounds.sort(key=lambda x: x[1], reverse=True)
+
+        # Determine difficulty level based on overall performance
+        overall_avg = sum(avg_prosody.values()) / len(avg_prosody)
+        if overall_avg >= 7:
+            difficulty = "advanced"
+        elif overall_avg >= 5:
+            difficulty = "intermediate"
+        else:
+            difficulty = "beginner"
+
+        # Build focus areas
+        focus_areas = []
+
+        # Add weakest prosody areas (top 2)
+        for area, score in weak_prosody[:2]:
+            focus_areas.append({
+                "type": "prosody",
+                "area": area,
+                "score": score,
+                "description": f"Improve {area} (avg: {score}/10)"
+            })
+
+        # Add pronunciation issues (top 3)
+        for sound, count in recurring_sounds[:3]:
+            focus_areas.append({
+                "type": "pronunciation",
+                "sound": sound,
+                "occurrences": count,
+                "description": f"Practice '{sound}' sound ({count} occurrences)"
+            })
+
+        # Add confidence if low
+        if avg_confidence and avg_confidence < 6:
+            focus_areas.append({
+                "type": "confidence",
+                "score": round(avg_confidence, 1),
+                "description": f"Build vocal confidence (avg: {round(avg_confidence, 1)}/10)"
+            })
+
+        # Add fluency if low
+        if avg_fluency and avg_fluency < 6:
+            focus_areas.append({
+                "type": "fluency",
+                "score": round(avg_fluency, 1),
+                "description": f"Improve fluency (avg: {round(avg_fluency, 1)}/10)"
+            })
+
+        # Add filler words if high
+        if avg_fillers > 3:
+            focus_areas.append({
+                "type": "filler_words",
+                "avg_count": round(avg_fillers, 1),
+                "description": f"Reduce filler words (avg: {round(avg_fillers, 1)} per session)"
+            })
+
+        return {
+            "sufficient_data": True,
+            "session_count": count,
+            "difficulty": difficulty,
+            "focus_areas": focus_areas,
+            "avg_prosody": {k: round(v, 1) for k, v in avg_prosody.items()},
+            "avg_confidence": round(avg_confidence, 1) if avg_confidence else None,
+            "avg_fluency": round(avg_fluency, 1) if avg_fluency else None,
+            "avg_fillers": round(avg_fillers, 1) if avg_fillers else None,
+            "recurring_sounds": recurring_sounds[:5],
         }

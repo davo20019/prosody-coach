@@ -11,3 +11,9 @@ google-genai>=1.0.0
 typer>=0.9.0
 rich>=13.0.0
 python-dotenv>=1.0.0
+
+# TTS for reference audio
+gTTS>=2.3.0
+
+# Voice activity detection
+webrtcvad>=2.0.10

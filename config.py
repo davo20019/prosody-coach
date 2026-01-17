@@ -64,4 +64,4 @@ RECORDINGS_DIR.mkdir(exist_ok=True)
 # Gemini settings (Phase 2)
 # Set your API key via environment variable: export GEMINI_API_KEY=your_key
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_MODEL = "gemini-3-flash-preview"
