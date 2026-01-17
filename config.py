@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env")
 
 # Audio settings
-SAMPLE_RATE = 44100
+SAMPLE_RATE = 16000  # 16kHz is optimal for speech (captures 80-8000 Hz range)
 CHANNELS = 1
 
 # Recording settings
