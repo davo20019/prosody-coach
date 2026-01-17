@@ -839,7 +839,7 @@ think /θɪŋk/, weather /ˈweðər/, rather /ˈræðər/, throughout /θruːˈa
 
     generate_config = types.GenerateContentConfig(
         temperature=0.7,  # Higher for more variety
-        max_output_tokens=1024,  # Enough for text + key sounds with thinking overhead
+        max_output_tokens=2048,  # Enough for text + key sounds with IPA
     )
 
     response = client.models.generate_content(
