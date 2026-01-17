@@ -48,14 +48,24 @@ def get_client() -> genai.Client:
 
 def extract_text_from_response(response) -> str:
     """Extract text content from Gemini response, filtering out thinking parts."""
+    # Manually extract text from parts to avoid SDK warning about thought_signature
+    text_parts = []
+    try:
+        if hasattr(response, 'candidates') and response.candidates:
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, 'text') and part.text:
+                    text_parts.append(part.text)
+        if text_parts:
+            return "".join(text_parts)
+    except Exception:
+        pass
+
+    # Fallback: suppress stdout/stderr and use .text
     import sys
     import io
-
-    # Suppress any warnings from the SDK when accessing response
     old_stdout, old_stderr = sys.stdout, sys.stderr
     sys.stdout = sys.stderr = io.StringIO()
     try:
-        # Try to get text directly - SDK will concatenate text parts
         if hasattr(response, 'text'):
             return response.text
         return ""
@@ -174,7 +184,7 @@ def analyze_with_coach_practice(
         config=generate_config,
     )
 
-    return parse_coaching_response(response.text)
+    return parse_coaching_response(extract_text_from_response(response))
 
 
 def build_practice_prompt(prosody: ProsodyAnalysis, expected_text: str) -> str:
