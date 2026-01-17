@@ -433,10 +433,10 @@ def get_user_weaknesses(limit: int = 10) -> dict:
 
     with get_db() as db:
         # Get session count
-        count = db.execute("SELECT COUNT(*) as count FROM sessions").fetchone()["count"]
+        session_count = db.execute("SELECT COUNT(*) as count FROM sessions").fetchone()["count"]
 
-        if count < 3:
-            return {"sufficient_data": False, "session_count": count}
+        if session_count < 3:
+            return {"sufficient_data": False, "session_count": session_count}
 
         # Get recent sessions
         rows = db.execute(
@@ -508,7 +508,7 @@ def get_user_weaknesses(limit: int = 10) -> dict:
             sound_counts[sound] = sound_counts.get(sound, 0) + 1
 
         # Get top pronunciation issues (appeared more than once)
-        recurring_sounds = [(sound, count) for sound, count in sound_counts.items() if count > 1]
+        recurring_sounds = [(sound, cnt) for sound, cnt in sound_counts.items() if cnt > 1]
         recurring_sounds.sort(key=lambda x: x[1], reverse=True)
 
         # Determine difficulty level based on overall performance
@@ -533,12 +533,12 @@ def get_user_weaknesses(limit: int = 10) -> dict:
             })
 
         # Add pronunciation issues (top 3)
-        for sound, count in recurring_sounds[:3]:
+        for sound, occurrences in recurring_sounds[:3]:
             focus_areas.append({
                 "type": "pronunciation",
                 "sound": sound,
-                "occurrences": count,
-                "description": f"Practice '{sound}' sound ({count} occurrences)"
+                "occurrences": occurrences,
+                "description": f"Practice '{sound}' sound ({occurrences} occurrences)"
             })
 
         # Add confidence if low
@@ -567,7 +567,7 @@ def get_user_weaknesses(limit: int = 10) -> dict:
 
         return {
             "sufficient_data": True,
-            "session_count": count,
+            "session_count": session_count,
             "difficulty": difficulty,
             "focus_areas": focus_areas,
             "avg_prosody": {k: round(v, 1) for k, v in avg_prosody.items()},
