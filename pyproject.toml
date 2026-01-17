@@ -24,4 +24,4 @@ dependencies = [
 prosody = "main:app"
 
 [tool.setuptools]
-py-modules = ["main", "analyzer", "coach", "config", "feedback", "prompts", "recorder", "storage"]
+py-modules = ["main", "analyzer", "coach", "config", "feedback", "prompts", "recorder", "storage", "realtime"]

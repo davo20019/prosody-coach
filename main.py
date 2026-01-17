@@ -17,12 +17,40 @@ from prompts import (
     get_all_categories,
     get_random_prompt,
     list_all_prompts,
+    get_rhythm_drill,
+    get_rhythm_drills_by_level,
+    get_random_rhythm_drill,
 )
 from storage import (
     save_session, get_history, get_stats, get_best_and_worst, get_session,
     get_user_weaknesses, get_due_sounds, update_sound_after_practice, get_sound_stats,
-    get_due_words, update_word_after_practice, get_word_stats
+    get_due_words, update_word_after_practice, get_word_stats,
+    get_rhythm_progress, set_rhythm_baseline, update_rhythm_progress,
+    save_rhythm_drill_attempt, get_due_rhythm_drills, get_available_levels,
 )
+
+import re
+
+
+def normalize_sound_name(sound: str) -> str:
+    """
+    Normalize a sound name for comparison by removing markdown formatting.
+
+    Examples:
+        '- **Consonant Clusters**' -> 'consonant clusters'
+        '1. S-Clusters' -> 's-clusters'
+        '- SOUND: /θ/' -> 'sound: /θ/'
+    """
+    s = sound.strip()
+    # Remove leading dash/bullet and space
+    s = re.sub(r'^[-•]\s*', '', s)
+    # Remove leading numbers with dot or parenthesis
+    s = re.sub(r'^\d+[.)]\s*', '', s)
+    # Remove markdown bold markers
+    s = s.replace('**', '')
+    # Convert to lowercase and strip
+    return s.lower().strip()
+
 
 app = typer.Typer(
     name="prosody",
@@ -682,6 +710,482 @@ def train(
 
 
 @app.command()
+def rhythm(
+    level: Optional[int] = typer.Option(
+        None,
+        "--level", "-l",
+        help="Practice a specific level (1-6).",
+    ),
+    baseline: bool = typer.Option(
+        False,
+        "--baseline", "-b",
+        help="Measure your starting nPVI.",
+    ),
+    status: bool = typer.Option(
+        False,
+        "--status", "-s",
+        help="Show your rhythm training progress.",
+    ),
+    drill_id: Optional[str] = typer.Option(
+        None,
+        "--drill", "-d",
+        help="Practice a specific drill by ID.",
+    ),
+    realtime: bool = typer.Option(
+        False,
+        "--realtime", "-r",
+        help="Real-time mode with streaming AI feedback (experimental).",
+    ),
+):
+    """
+    Progressive rhythm training for stress-timed English.
+
+    A structured 6-level program to improve your English rhythm
+    from syllable-timed (Spanish-like) to stress-timed (English-like).
+
+    Examples:
+        prosody rhythm              # Continue at current level
+        prosody rhythm --baseline   # Measure starting nPVI
+        prosody rhythm --level 2    # Practice level 2
+        prosody rhythm --status     # View progress
+        prosody rhythm --realtime   # Real-time streaming mode
+    """
+    from rich.prompt import Prompt
+    from feedback import (
+        display_rhythm_progress,
+        display_rhythm_feedback,
+        display_rhythm_drill_intro,
+        display_level_unlock,
+    )
+    from coach import (
+        analyze_rhythm_with_coach,
+        generate_targeted_drill,
+        evaluate_mastery_with_ai,
+        MasteryEvaluationResult,
+    )
+    from config import RHYTHM_LEVEL_CONFIG
+    from storage import (
+        track_rhythm_issue,
+        mark_rhythm_issue_resolved,
+        get_rhythm_issues,
+        get_level_mastery_data,
+        save_mastery_evaluation,
+        should_evaluate_mastery,
+    )
+
+    # Handle real-time mode
+    if realtime:
+        import asyncio
+        from realtime import run_realtime_rhythm_training
+
+        # Determine level
+        progress = get_rhythm_progress()
+        current_level = progress.get("current_level", 1)
+        practice_level = level if level else current_level
+
+        try:
+            asyncio.run(run_realtime_rhythm_training(practice_level, console))
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Real-time session cancelled.[/yellow]")
+        except Exception as e:
+            console.print(f"\n[red]Real-time mode error: {e}[/red]")
+            console.print("[dim]Try standard mode: prosody rhythm[/dim]")
+        return
+
+    try:
+        # Status mode - show progress
+        if status:
+            progress = get_rhythm_progress()
+            display_rhythm_progress(progress)
+            return
+
+        # Baseline mode - measure starting nPVI
+        if baseline:
+            console.print()
+            console.print(Panel(
+                "[bold]Baseline Measurement[/bold]\n\n"
+                "We'll measure your current rhythm pattern (nPVI).\n"
+                "Read the following sentence naturally - don't try to change anything.\n\n"
+                "[dim]This establishes your starting point for tracking progress.[/dim]",
+                border_style="cyan",
+            ))
+
+            baseline_text = "I want to go to the store to get some milk and bread for dinner tonight."
+
+            console.print()
+            console.print(Panel(
+                f"[bold white]{baseline_text}[/bold white]",
+                title="[bold green]READ THIS[/bold green]",
+                border_style="green",
+                padding=(1, 2),
+            ))
+
+            console.print()
+            console.print("[dim]Playing reference audio...[/dim]")
+            play_tts(baseline_text)
+
+            console.print()
+            console.print(Panel(
+                "[bold]Press Enter to stop recording[/bold]",
+                title="[bold blue]Recording[/bold blue]",
+                border_style="blue",
+            ))
+
+            audio_data, sample_rate = record_audio()
+            duration = get_duration(audio_data, sample_rate)
+            console.print(f"[green]Done![/green] ({duration:.1f} seconds)\n")
+
+            if duration < 2.0:
+                console.print("[red]Recording too short. Please read the full sentence.[/red]")
+                raise typer.Exit(1)
+
+            console.print("[dim]Analyzing prosody...[/dim]")
+            analysis = analyze_prosody(audio_data, sample_rate)
+
+            # Set baseline
+            npvi = analysis.rhythm.pvi
+            set_rhythm_baseline(npvi)
+
+            console.print()
+            console.print(Panel(
+                f"[bold]Your baseline nPVI:[/bold] [cyan]{npvi:.0f}[/cyan]\n\n"
+                f"[dim]Spanish typical: ~40 | English target: ~60[/dim]\n\n"
+                f"{'[yellow]Starting point identified. Lets work on improving your rhythm![/yellow]' if npvi < 50 else '[green]Good starting point! Lets refine your rhythm further.[/green]'}",
+                title="[bold]Baseline Established[/bold]",
+                border_style="cyan",
+            ))
+
+            # Show next steps
+            console.print()
+            console.print("[bold]Next steps:[/bold]")
+            console.print("  • Run [cyan]prosody rhythm[/cyan] to start Level 1 training")
+            console.print("  • Run [cyan]prosody rhythm --status[/cyan] to track progress")
+            console.print()
+            return
+
+        # Get current progress
+        progress = get_rhythm_progress()
+        current_level = progress.get("current_level", 1)
+        available_levels = get_available_levels()
+
+        # Determine which level to practice
+        practice_level = level if level else current_level
+
+        # Validate level selection
+        if practice_level not in available_levels:
+            if practice_level > max(available_levels):
+                console.print(f"[yellow]Level {practice_level} is locked. Complete Level {max(available_levels)} first.[/yellow]")
+                practice_level = max(available_levels)
+            else:
+                console.print(f"[red]Invalid level: {practice_level}. Available: {available_levels}[/red]")
+                raise typer.Exit(1)
+
+        # Check if we need baseline
+        if not progress.get("npvi_baseline"):
+            console.print()
+            console.print("[yellow]No baseline measurement found.[/yellow]")
+            console.print("[dim]Run 'prosody rhythm --baseline' first to measure your starting nPVI.[/dim]")
+            console.print()
+            raise typer.Exit(0)
+
+        level_config = RHYTHM_LEVEL_CONFIG.get(practice_level, {})
+
+        # Show level intro
+        console.print()
+        console.print(Panel(
+            f"[bold]Level {practice_level}: {level_config.get('name', '')}[/bold]\n\n"
+            f"{level_config.get('description', '')}\n\n"
+            f"[dim]nPVI Target: {level_config.get('npvi_target', 50)}+ | "
+            f"Min Rhythm Score: {level_config.get('min_rhythm_score', 5)}/10 | "
+            f"Passes needed: {level_config.get('consecutive_passes', 3)}[/dim]",
+            border_style="cyan",
+        ))
+
+        # Get drill with smart selection
+        if drill_id:
+            drill = get_rhythm_drill(drill_id)
+            if not drill:
+                console.print(f"[red]Drill '{drill_id}' not found.[/red]")
+                raise typer.Exit(1)
+        else:
+            drill = None
+
+            # Priority 1: Check for unresolved issues and generate targeted drill
+            unresolved_issues = get_rhythm_issues(level=practice_level, unresolved_only=True)
+            if unresolved_issues:
+                console.print("[dim]Found problem areas - generating targeted practice...[/dim]")
+                try:
+                    drill = generate_targeted_drill(
+                        practice_level,
+                        unresolved_issues,
+                        []  # existing drills
+                    )
+                    if drill:
+                        console.print("[cyan]AI-generated drill targeting your specific issues[/cyan]")
+                except Exception:
+                    pass  # Fall through to standard drills
+
+            # Priority 2: Check for due drills (spaced repetition)
+            if not drill:
+                due_drills = get_due_rhythm_drills(level=practice_level, limit=1)
+                if due_drills:
+                    drill = get_rhythm_drill(due_drills[0]["drill_id"])
+                    console.print("[dim]Reviewing a drill that's due for practice...[/dim]")
+
+            # Priority 3: Get random drill from level
+            if not drill:
+                drill = get_random_rhythm_drill(practice_level)
+
+        if not drill:
+            console.print(f"[red]No drills available for Level {practice_level}.[/red]")
+            raise typer.Exit(1)
+
+        # Training loop
+        while True:
+            # Display drill
+            display_rhythm_drill_intro(drill, practice_level)
+
+            # Play TTS reference
+            console.print("[bold cyan]Listen first...[/bold cyan]")
+            play_tts(drill["text"])
+
+            # Record
+            console.print()
+            console.print(Panel(
+                "[bold]Press Enter to stop recording[/bold]",
+                title="[bold blue]Recording[/bold blue]",
+                border_style="blue",
+            ))
+
+            audio_data, sample_rate = record_audio()
+            duration = get_duration(audio_data, sample_rate)
+            console.print(f"[green]Done![/green] ({duration:.1f} seconds)\n")
+
+            if duration < 1.0:
+                console.print("[red]Recording too short. Please try again.[/red]")
+                continue
+
+            # Analyze prosody
+            console.print("[dim]Analyzing prosody...[/dim]")
+            analysis = analyze_prosody(audio_data, sample_rate)
+
+            # Start AI rhythm coaching in background
+            import threading
+            rhythm_coaching_result = {"result": None, "error": None}
+
+            def fetch_rhythm_coaching():
+                try:
+                    rhythm_coaching_result["result"] = analyze_rhythm_with_coach(
+                        audio_data, sample_rate, analysis, drill["text"],
+                        practice_level, drill.get("focus", ""), drill.get("technique", "")
+                    )
+                except Exception as e:
+                    rhythm_coaching_result["error"] = str(e)
+
+            ai_thread = threading.Thread(target=fetch_rhythm_coaching)
+            ai_thread.start()
+
+            # Playback while AI processes
+            console.print("[dim]Playing back (AI processing in background)...[/dim]")
+            play_audio(audio_data, sample_rate)
+
+            # Wait for AI to finish if still running
+            if ai_thread.is_alive():
+                console.print("[dim]Waiting for AI feedback...[/dim]")
+            ai_thread.join()
+
+            # Get result
+            if rhythm_coaching_result["result"]:
+                rhythm_result = rhythm_coaching_result["result"]
+            elif rhythm_coaching_result["error"]:
+                console.print(f"[yellow]AI feedback unavailable: {rhythm_coaching_result['error']}[/yellow]")
+                rhythm_result = None
+            else:
+                rhythm_result = None
+
+            # Determine pass/fail
+            npvi = analysis.rhythm.pvi
+            rhythm_score = analysis.rhythm.score
+            npvi_target = level_config.get("npvi_target", 45)
+            min_rhythm = level_config.get("min_rhythm_score", 5)
+
+            # Use AI judgment if available, otherwise use measured values
+            if rhythm_result:
+                passed = rhythm_result.level_passed
+                ai_rhythm_score = rhythm_result.rhythm_score
+            else:
+                passed = rhythm_score >= min_rhythm and npvi >= npvi_target
+                ai_rhythm_score = rhythm_score
+
+            # Track issues from AI feedback
+            if rhythm_result and rhythm_result.word_stress_issues:
+                for issue in rhythm_result.word_stress_issues:
+                    track_rhythm_issue(
+                        issue_type="word_stress",
+                        level=practice_level,
+                        word=issue.get("word"),
+                        expected=issue.get("expected"),
+                        heard=issue.get("heard"),
+                    )
+
+            # Mark issues as resolved if user passed with good stress
+            if rhythm_result and passed and rhythm_result.stress_correct:
+                # Any words in the drill that were previously problematic are now resolved
+                drill_words = drill.get("text", "").lower().split()
+                for word in drill_words:
+                    # Only mark resolved if it was actually a tracked issue
+                    mark_rhythm_issue_resolved(word=word.strip(",.!?"), level=practice_level)
+
+            # Display feedback
+            if rhythm_result:
+                display_rhythm_feedback(rhythm_result, analysis, practice_level, passed)
+            else:
+                # Basic feedback without AI
+                console.print()
+                if passed:
+                    console.print(Panel(
+                        f"[bold green]✓ LEVEL {practice_level} PASS[/bold green]",
+                        border_style="green",
+                    ))
+                else:
+                    console.print(Panel(
+                        f"[bold yellow]○ Keep practicing Level {practice_level}[/bold yellow]",
+                        border_style="yellow",
+                    ))
+                console.print(f"[bold]Rhythm Score:[/bold] {rhythm_score}/10")
+                console.print(f"[bold]nPVI:[/bold] {npvi:.0f} (target: {npvi_target}+)")
+
+            # Update progress
+            progress_update = update_rhythm_progress(
+                practice_level, npvi, ai_rhythm_score, passed
+            )
+
+            # Save drill attempt
+            save_rhythm_drill_attempt(
+                drill["id"], practice_level, npvi, ai_rhythm_score, passed
+            )
+
+            # AI Mastery Evaluation (dynamic level advancement)
+            if should_evaluate_mastery(practice_level) and practice_level < 6:
+                console.print("[dim]Evaluating mastery...[/dim]")
+                try:
+                    mastery_data = get_level_mastery_data(practice_level)
+                    mastery_result = evaluate_mastery_with_ai(mastery_data)
+
+                    # Save evaluation
+                    save_mastery_evaluation(
+                        level=practice_level,
+                        fundamentals_solid=mastery_result.fundamentals_solid,
+                        issues_resolved=mastery_data["resolved_issues_count"],
+                        issues_remaining=len(mastery_data["unresolved_issues"]),
+                        unique_drills_passed=mastery_data["unique_drills_passed"],
+                        recommendation=mastery_result.recommendation,
+                        reasoning=mastery_result.reasoning,
+                        npvi_avg=mastery_data["avg_npvi"],
+                        rhythm_avg=mastery_data["avg_rhythm_score"],
+                    )
+
+                    # Show AI recommendation
+                    if mastery_result.recommendation == "advance":
+                        console.print()
+                        console.print(Panel(
+                            f"[bold green]🎓 AI RECOMMENDS ADVANCEMENT[/bold green]\n\n"
+                            f"{mastery_result.reasoning}\n\n"
+                            f"[dim]Confidence: {mastery_result.confidence:.0%}[/dim]",
+                            border_style="green",
+                        ))
+                        # Force level unlock if AI recommends and not already unlocked
+                        if not progress_update.get("next_level_unlocked"):
+                            from storage import get_db, init_db
+                            from datetime import datetime
+                            init_db()
+                            with get_db() as db:
+                                db.execute(
+                                    f"UPDATE rhythm_progress SET current_level = ?, level_{practice_level + 1}_unlocked_at = ?",
+                                    (practice_level + 1, datetime.now().isoformat())
+                                )
+                            display_level_unlock(practice_level + 1)
+                            progress_update["next_level_unlocked"] = True
+                    elif mastery_result.focus_areas:
+                        console.print()
+                        console.print(Panel(
+                            f"[bold yellow]📋 FOCUS AREAS[/bold yellow]\n\n"
+                            f"{chr(10).join('• ' + area for area in mastery_result.focus_areas[:3])}\n\n"
+                            f"[dim]{mastery_result.reasoning}[/dim]",
+                            border_style="yellow",
+                        ))
+                except Exception as e:
+                    # AI evaluation failed, fall back to standard progress
+                    pass
+
+            # Check for level unlock (standard path)
+            if progress_update.get("next_level_unlocked"):
+                display_level_unlock(practice_level + 1)
+
+            # Show progress summary
+            console.print()
+            consecutive = progress_update.get("consecutive_passes", 0)
+            required = progress_update.get("required_passes", 3)
+            console.print(f"[dim]Progress: {consecutive}/{required} consecutive passes[/dim]")
+
+            # Next prompt
+            console.print()
+            console.print("[dim]─" * 40 + "[/dim]")
+
+            # Drain any pending stdin
+            import sys
+            import select
+            while select.select([sys.stdin], [], [], 0)[0]:
+                sys.stdin.readline()
+
+            action = Prompt.ask("Press Enter for next drill, q to quit", default="", show_default=False)
+
+            if action.lower() == "q":
+                # Show final progress
+                final_progress = get_rhythm_progress()
+                display_rhythm_progress(final_progress)
+                break
+
+            # Get next drill with smart selection
+            drill = None
+
+            # Priority 1: Check for unresolved issues and generate targeted drill
+            unresolved_issues = get_rhythm_issues(level=practice_level, unresolved_only=True)
+            if unresolved_issues:
+                try:
+                    drill = generate_targeted_drill(
+                        practice_level,
+                        unresolved_issues,
+                        []
+                    )
+                    if drill:
+                        console.print("[cyan]AI-generated drill targeting your issues[/cyan]")
+                except Exception:
+                    pass
+
+            # Priority 2: Check for due drills (spaced repetition)
+            if not drill:
+                due_drills = get_due_rhythm_drills(level=practice_level, limit=1)
+                if due_drills:
+                    drill = get_rhythm_drill(due_drills[0]["drill_id"])
+
+            # Priority 3: Get random drill from level
+            if not drill:
+                drill = get_random_rhythm_drill(practice_level)
+
+            if not drill:
+                console.print(f"[yellow]No more drills available for Level {practice_level}.[/yellow]")
+                break
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Rhythm training cancelled.[/yellow]")
+        raise typer.Exit(0)
+    except Exception as e:
+        console.print(f"\n[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command()
 def history(
     limit: int = typer.Option(
         10,
@@ -872,10 +1376,11 @@ def show_interactive_menu():
         "1": ("analyze", "Record and analyze your speech"),
         "2": ("practice", "Practice with guided prompts"),
         "3": ("train", "Tailored training (based on your history)"),
-        "4": ("history", "View your practice history"),
-        "5": ("progress", "View your progress stats"),
-        "6": ("info", "Learn about prosody components"),
-        "7": ("tips", "Tips for Spanish speakers"),
+        "4": ("rhythm", "Rhythm training (stress-timed English)"),
+        "5": ("history", "View your practice history"),
+        "6": ("progress", "View your progress stats"),
+        "7": ("info", "Learn about prosody components"),
+        "8": ("tips", "Tips for Spanish speakers"),
         "q": ("quit", "Exit"),
     }
 
@@ -920,6 +1425,11 @@ def show_interactive_menu():
 
         console.print()
 
+        # Get rhythm progress for menu display
+        rhythm_progress = get_rhythm_progress()
+        rhythm_level = rhythm_progress.get("current_level", 1)
+        rhythm_has_baseline = rhythm_progress.get("npvi_baseline") is not None
+
         for key, (cmd, desc) in menu_options.items():
             if key == "q":
                 console.print(f"  [dim]{key}[/dim]  [red]{desc}[/red]")
@@ -931,6 +1441,12 @@ def show_interactive_menu():
                     console.print(f"  [bold green]{key}[/bold green]  [green]{desc}[/green] ✨")
                 else:
                     console.print(f"  [dim]{key}[/dim]  [dim]{desc} (need 3+ sessions)[/dim]")
+            elif key == "4":
+                # Rhythm training with level indicator
+                if rhythm_has_baseline:
+                    console.print(f"  [bold magenta]{key}[/bold magenta]  [magenta]{desc}[/magenta] L{rhythm_level}")
+                else:
+                    console.print(f"  [bold cyan]{key}[/bold cyan]  {desc} [dim](new)[/dim]")
             else:
                 console.print(f"  [bold cyan]{key}[/bold cyan]  {desc}")
 
@@ -954,12 +1470,14 @@ def show_interactive_menu():
         elif choice == "3":
             run_tailored_training(Prompt, weaknesses)
         elif choice == "4":
-            history(limit=10, mode=None)
+            run_rhythm_training(Prompt, rhythm_progress)
         elif choice == "5":
-            progress()
+            history(limit=10, mode=None)
         elif choice == "6":
-            info()
+            progress()
         elif choice == "7":
+            info()
+        elif choice == "8":
             tips()
 
 
@@ -1158,11 +1676,11 @@ def run_tailored_training(Prompt, weaknesses: dict):
         # Update spaced repetition for target sounds
         target_sounds = prompt_data.get("target_sounds", [])
         if target_sounds:
-            # Get sounds that were flagged as issues in this session
+            # Get sounds that were flagged as issues in this session (normalized for comparison)
             flagged_sounds = set()
             if pronunciation_issues:
                 for issue in pronunciation_issues:
-                    flagged_sounds.add(issue.get("sound", "").lower())
+                    flagged_sounds.add(normalize_sound_name(issue.get("sound", "")))
 
             console.print()
             console.print("[bold]Spaced repetition update (sounds):[/bold]")
@@ -1170,13 +1688,15 @@ def run_tailored_training(Prompt, weaknesses: dict):
             for target in target_sounds:
                 sound = target.get("sound", "")
                 if sound:
-                    # Sound was correct if it wasn't flagged as an issue
-                    was_correct = sound.lower() not in flagged_sounds
+                    # Sound was correct if its normalized name wasn't flagged as an issue
+                    normalized_sound = normalize_sound_name(sound)
+                    was_correct = normalized_sound not in flagged_sounds
                     update_sound_after_practice(sound, was_correct)
+                    display_name = normalized_sound if normalized_sound != sound.lower() else sound
                     if was_correct:
-                        console.print(f"  [green]✓[/green] '{sound}' - correct! (interval increased)")
+                        console.print(f"  [green]✓[/green] '{display_name}' - correct! (interval increased)")
                     else:
-                        console.print(f"  [red]✗[/red] '{sound}' - needs more practice (interval reset)")
+                        console.print(f"  [red]✗[/red] '{display_name}' - needs more practice (interval reset)")
 
         # Update spaced repetition for target words
         target_words = prompt_data.get("target_words", [])
@@ -1187,7 +1707,6 @@ def run_tailored_training(Prompt, weaknesses: dict):
                 for issue in pronunciation_issues:
                     example = issue.get("example", "").lower()
                     # Extract word from example
-                    import re
                     word_match = re.match(r'^([a-z]+)', example)
                     if word_match:
                         flagged_words.add(word_match.group(1))
@@ -1280,6 +1799,63 @@ def show_practice_menu(Prompt):
 
         if action.lower() == "q":
             break
+
+
+def run_rhythm_training(Prompt, rhythm_progress: dict):
+    """Run rhythm training session from the interactive menu."""
+    from feedback import display_rhythm_progress
+
+    # Check if baseline is set
+    if not rhythm_progress.get("npvi_baseline"):
+        console.print()
+        console.print(Panel(
+            "[bold]Welcome to Rhythm Training![/bold]\n\n"
+            "This program will help you develop English stress-timed rhythm.\n\n"
+            "[yellow]First, let's measure your baseline nPVI to track progress.[/yellow]",
+            border_style="cyan",
+        ))
+
+        console.print()
+        start = Prompt.ask("Start baseline measurement?", choices=["y", "n"], default="y")
+
+        if start == "y":
+            rhythm(level=None, baseline=True, status=False, drill_id=None, realtime=False)
+
+            # After baseline, offer to start training
+            console.print()
+            continue_training = Prompt.ask(
+                "Start Level 1 training now?",
+                choices=["y", "n"],
+                default="y"
+            )
+            if continue_training == "y":
+                rhythm(level=None, baseline=False, status=False, drill_id=None, realtime=False)
+        else:
+            console.print("[dim]You can run 'prosody rhythm --baseline' when ready.[/dim]")
+        return
+
+    # Show current progress
+    display_rhythm_progress(rhythm_progress)
+
+    console.print()
+    console.print("[bold]Options:[/bold]")
+    console.print("  [bold cyan]1[/bold cyan]  Continue training at current level")
+    console.print("  [bold cyan]2[/bold cyan]  View progress")
+    console.print("  [bold cyan]b[/bold cyan]  [dim]Back to main menu[/dim]")
+    console.print()
+
+    choice = Prompt.ask(
+        "[bold]Select an option[/bold]",
+        choices=["1", "2", "b"],
+        default="1",
+        show_choices=False,
+    )
+
+    if choice == "1":
+        rhythm(level=None, baseline=False, status=False, drill_id=None, realtime=False)
+    elif choice == "2":
+        rhythm(level=None, baseline=False, status=True, drill_id=None, realtime=False)
+    # "b" just returns to main menu
 
 
 if __name__ == "__main__":

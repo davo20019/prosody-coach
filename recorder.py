@@ -1,5 +1,6 @@
 """Audio recording module for capturing speech from microphone."""
 
+import asyncio
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
@@ -9,12 +10,12 @@ import io
 import tempfile
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Optional, Tuple, AsyncGenerator
 
 from rich.live import Live
 from rich.text import Text
 
-from config import SAMPLE_RATE, CHANNELS, RECORDINGS_DIR
+from config import SAMPLE_RATE, CHANNELS, RECORDINGS_DIR, REALTIME_AUDIO_CHUNK_MS
 
 
 def record_audio(
@@ -297,3 +298,93 @@ def play_tts(text: str, slow: bool = False) -> bool:
 
     except Exception:
         return False
+
+
+class AsyncAudioStreamer:
+    """
+    Async audio streamer for real-time audio processing.
+
+    Streams audio chunks from the microphone as an async generator,
+    suitable for use with Gemini Live API.
+    """
+
+    def __init__(self, chunk_ms: int = REALTIME_AUDIO_CHUNK_MS):
+        """
+        Initialize the async audio streamer.
+
+        Args:
+            chunk_ms: Size of each audio chunk in milliseconds
+        """
+        self.chunk_ms = chunk_ms
+        self.chunk_samples = int(SAMPLE_RATE * chunk_ms / 1000)
+        self.queue: asyncio.Queue = None
+        self.stream: sd.InputStream = None
+        self.running = False
+        self._loop: asyncio.AbstractEventLoop = None
+
+    def _audio_callback(self, indata, frames, time, status):
+        """Callback for sounddevice InputStream."""
+        if self.running and self.queue and self._loop:
+            # Convert to 16-bit PCM bytes
+            audio_int16 = (indata.flatten() * 32767).astype(np.int16)
+            audio_bytes = audio_int16.tobytes()
+            try:
+                self._loop.call_soon_threadsafe(
+                    self.queue.put_nowait, audio_bytes
+                )
+            except asyncio.QueueFull:
+                pass  # Drop frames if queue is full
+
+    async def start(self):
+        """Start the audio stream."""
+        self._loop = asyncio.get_event_loop()
+        self.queue = asyncio.Queue(maxsize=100)
+        self.running = True
+
+        self.stream = sd.InputStream(
+            samplerate=SAMPLE_RATE,
+            channels=CHANNELS,
+            dtype=np.float32,
+            callback=self._audio_callback,
+            blocksize=self.chunk_samples,
+        )
+        self.stream.start()
+
+    async def stop(self):
+        """Stop the audio stream."""
+        self.running = False
+        if self.stream:
+            self.stream.stop()
+            self.stream.close()
+            self.stream = None
+        # Signal end of stream
+        if self.queue:
+            await self.queue.put(None)
+
+    async def stream_audio(self) -> AsyncGenerator[bytes, None]:
+        """
+        Async generator yielding audio chunks.
+
+        Yields:
+            Audio data as 16-bit PCM bytes (16kHz mono)
+        """
+        if not self.running:
+            await self.start()
+
+        while self.running:
+            try:
+                chunk = await asyncio.wait_for(
+                    self.queue.get(),
+                    timeout=0.5
+                )
+                if chunk is None:
+                    break
+                yield chunk
+            except asyncio.TimeoutError:
+                continue
+
+    def __del__(self):
+        """Cleanup on deletion."""
+        if self.stream:
+            self.stream.stop()
+            self.stream.close()

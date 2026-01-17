@@ -4,7 +4,10 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
+from rich.live import Live
+from rich.layout import Layout
 from rich import box
+from typing import Optional
 
 from analyzer import ProsodyAnalysis
 
@@ -198,3 +201,389 @@ def display_comparison(analysis1: ProsodyAnalysis, analysis2: ProsodyAnalysis, l
 
     console.print(table)
     console.print()
+
+
+# =============================================================================
+# Rhythm Training Display Functions
+# =============================================================================
+
+def display_rhythm_progress(progress: dict) -> None:
+    """Display rhythm training progress with level progress bars and nPVI trend."""
+    from config import RHYTHM_LEVEL_CONFIG
+
+    console.print()
+    console.print(Panel(
+        "[bold]Rhythm Training Progress[/bold]",
+        border_style="cyan",
+    ))
+
+    # nPVI progress
+    npvi_baseline = progress.get("npvi_baseline")
+    npvi_current = progress.get("npvi_current")
+
+    if npvi_baseline and npvi_current:
+        npvi_change = npvi_current - npvi_baseline
+        change_color = "green" if npvi_change >= 0 else "red"
+        change_str = f"+{npvi_change:.0f}" if npvi_change >= 0 else f"{npvi_change:.0f}"
+
+        # nPVI bar (target is 60, starting at 40)
+        npvi_normalized = min(100, max(0, (npvi_current - 35) / 30 * 100))
+        npvi_bar_width = 20
+        filled = int(npvi_normalized * npvi_bar_width / 100)
+        empty = npvi_bar_width - filled
+
+        console.print()
+        console.print(f"[bold]nPVI:[/bold] {npvi_current:.0f} [{change_color}]({change_str})[/{change_color}]")
+        console.print(f"  [dim]35[/dim] [green]{'█' * filled}[/green][dim]{'░' * empty}[/dim] [dim]65[/dim]")
+        console.print(f"  [dim]Spanish-like → English-like[/dim]")
+
+    elif npvi_current:
+        console.print(f"\n[bold]Current nPVI:[/bold] {npvi_current:.0f}")
+
+    # Level progress
+    current_level = progress.get("current_level", 1)
+    levels = progress.get("levels", {})
+
+    console.print()
+    console.print("[bold]Levels:[/bold]")
+
+    table = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
+    table.add_column("Level", width=30)
+    table.add_column("Progress", width=25)
+    table.add_column("Status", width=15)
+
+    for level_num in range(1, 7):
+        level_data = levels.get(level_num, {})
+        config = RHYTHM_LEVEL_CONFIG.get(level_num, {})
+
+        level_name = config.get("name", f"Level {level_num}")
+        required = config.get("consecutive_passes", 3)
+        consecutive = level_data.get("consecutive_passes", 0)
+        unlocked = level_data.get("unlocked_at") is not None
+        mastered = consecutive >= required
+
+        # Level label with number
+        level_label = f"[bold]{level_num}.[/bold] {level_name}"
+
+        # Progress bar
+        if not unlocked:
+            progress_str = "[dim]🔒 Locked[/dim]"
+            status = ""
+        elif mastered:
+            progress_str = "[green]✓ ✓ ✓[/green]"
+            status = "[green]Mastered[/green]"
+        else:
+            checks = "✓ " * consecutive + "○ " * (required - consecutive)
+            progress_str = f"[yellow]{checks.strip()}[/yellow]"
+            status = f"[yellow]{consecutive}/{required}[/yellow]"
+
+        # Highlight current level
+        if level_num == current_level and not mastered:
+            level_label = f"[bold cyan]→ {level_label}[/bold cyan]"
+
+        table.add_row(level_label, progress_str, status)
+
+    console.print(table)
+    console.print()
+
+
+def display_level_unlock(level: int) -> None:
+    """Display celebration when a new level is unlocked."""
+    from config import RHYTHM_LEVEL_CONFIG
+
+    config = RHYTHM_LEVEL_CONFIG.get(level, {})
+    level_name = config.get("name", f"Level {level}")
+    description = config.get("description", "")
+
+    console.print()
+    console.print(Panel(
+        f"[bold green]🎉 LEVEL {level} UNLOCKED! 🎉[/bold green]\n\n"
+        f"[bold]{level_name}[/bold]\n"
+        f"[dim]{description}[/dim]\n\n"
+        f"[cyan]New techniques to practice:[/cyan]\n"
+        f"{chr(10).join('• ' + t for t in config.get('techniques', []))}",
+        border_style="green",
+        title="[bold]CONGRATULATIONS[/bold]",
+    ))
+    console.print()
+
+
+def display_rhythm_feedback(result, prosody, level: int, passed: bool) -> None:
+    """Display rhythm-specific feedback from AI analysis."""
+
+    console.print()
+
+    # Pass/Fail indicator
+    if passed:
+        console.print(Panel(
+            f"[bold green]✓ LEVEL {level} PASS[/bold green]",
+            border_style="green",
+        ))
+    else:
+        console.print(Panel(
+            f"[bold yellow]○ Keep practicing Level {level}[/bold yellow]",
+            border_style="yellow",
+        ))
+
+    # Transcript
+    if result.transcript:
+        console.print()
+        console.print(Panel(
+            f"[italic]{result.transcript}[/italic]",
+            title="[bold blue]What you said[/bold blue]",
+            border_style="blue",
+        ))
+
+    # Rhythm metrics
+    console.print()
+    table = Table(box=box.ROUNDED, show_header=True, title="[bold]Rhythm Analysis[/bold]", expand=True)
+    table.add_column("Metric", style="bold", width=18)
+    table.add_column("Value", justify="center", width=12)
+    table.add_column("Feedback")  # No fixed width - let it expand
+
+    # AI rhythm score
+    rhythm_color = score_to_color(result.rhythm_score)
+    table.add_row(
+        "AI Rhythm Score",
+        f"[{rhythm_color}]{result.rhythm_score}/10[/{rhythm_color}]",
+        result.timing_feedback,  # Full feedback
+    )
+
+    # Measured nPVI
+    npvi = prosody.rhythm.pvi
+    npvi_color = "green" if npvi >= 55 else "yellow" if npvi >= 45 else "red"
+    table.add_row(
+        "nPVI (measured)",
+        f"[{npvi_color}]{npvi:.0f}[/{npvi_color}]",
+        "[dim]Target: 55-65 (English-like)[/dim]",
+    )
+
+    # AI nPVI estimate
+    if result.npvi_estimate:
+        est_color = "green" if result.npvi_estimate >= 55 else "yellow" if result.npvi_estimate >= 45 else "red"
+        table.add_row(
+            "nPVI (AI estimate)",
+            f"[{est_color}]{result.npvi_estimate:.0f}[/{est_color}]",
+            "[dim]Based on AI perception[/dim]",
+        )
+
+    # Stress correct
+    stress_check = "[green]✓[/green]" if result.stress_correct else "[red]✗[/red]"
+    table.add_row(
+        "Stress Patterns",
+        stress_check,
+        result.stress_feedback,  # Full feedback
+    )
+
+    # Function reduction (for levels 2+)
+    if level >= 2:
+        reduction_check = "[green]✓[/green]" if result.function_reduction else "[yellow]○[/yellow]"
+        table.add_row(
+            "Function Reduction",
+            reduction_check,
+            result.reduction_feedback,  # Full feedback
+        )
+
+    console.print(table)
+
+    # Word stress issues
+    if result.word_stress_issues:
+        console.print()
+        console.print("[bold red]Word Stress Issues:[/bold red]")
+        for issue in result.word_stress_issues:
+            console.print(f"  [red]•[/red] [bold]{issue.get('word', '')}[/bold]")
+            expected = issue.get('expected', '')
+            heard = issue.get('heard', '')
+            if expected and heard:
+                console.print(f"    Expected: {expected} → Heard: {heard}")
+            tip = issue.get('tip', '')
+            if tip:
+                console.print(f"    [dim]{tip}[/dim]")
+
+    # Technique tip
+    if result.technique_tip:
+        console.print()
+        console.print(Panel(
+            f"[yellow]{result.technique_tip}[/yellow]",
+            title="[bold yellow]Technique Tip[/bold yellow]",
+            border_style="yellow",
+        ))
+
+    # Encouragement
+    if result.encouragement:
+        console.print()
+        console.print(f"[green]{result.encouragement}[/green]")
+
+    console.print()
+
+
+def display_rhythm_drill_intro(drill: dict, level: int) -> None:
+    """Display the drill introduction with text and technique."""
+    from config import RHYTHM_LEVEL_CONFIG
+
+    config = RHYTHM_LEVEL_CONFIG.get(level, {})
+    level_name = config.get("name", f"Level {level}")
+
+    # Build panel content with text and IPA
+    content = f"[bold white]{drill.get('text', '')}[/bold white]"
+    if drill.get("ipa"):
+        content += f"\n[dim cyan]/{drill['ipa']}/[/dim cyan]"
+
+    console.print()
+    console.print(Panel(
+        content,
+        title=f"[bold green]Level {level}: {level_name}[/bold green]",
+        subtitle=f"[dim]{drill.get('focus', '')}[/dim]",
+        border_style="green",
+        padding=(1, 2),
+    ))
+
+    if drill.get("tip"):
+        console.print(f"[yellow]Tip:[/yellow] {drill['tip']}")
+
+    if drill.get("technique"):
+        console.print(f"[cyan]Technique:[/cyan] {drill['technique']}")
+
+    if drill.get("pattern"):
+        console.print(f"[dim]Pattern: {drill['pattern']}[/dim]")
+
+    console.print()
+
+
+# =============================================================================
+# Real-Time Feedback Display
+# =============================================================================
+
+class LiveFeedbackDisplay:
+    """
+    Real-time feedback display using Rich Live for streaming updates.
+
+    Provides visual feedback during real-time rhythm training sessions.
+    """
+
+    def __init__(self, console: Console = None):
+        """Initialize the live feedback display."""
+        self.console = console or Console()
+        self.live: Optional[Live] = None
+        self._current_state = "idle"
+        self._drill_text = ""
+        self._drill_ipa = ""
+        self._level = 1
+        self._partial_feedback = ""
+        self._result_text = ""
+        self._score = 0
+        self._passed = False
+
+    def _build_display(self) -> Panel:
+        """Build the current display panel based on state."""
+        content = Text()
+
+        # Drill text
+        if self._drill_text:
+            content.append(self._drill_text + "\n", style="bold white")
+            if self._drill_ipa:
+                content.append(f"/{self._drill_ipa}/\n", style="dim cyan")
+            content.append("\n")
+
+        # State-specific content
+        if self._current_state == "playing_tts":
+            content.append("  Listen first...", style="bold cyan")
+        elif self._current_state == "listening":
+            content.append("  Recording - speak now...", style="bold red")
+        elif self._current_state == "processing":
+            content.append("  Processing...", style="dim")
+        elif self._current_state == "feedback":
+            if self._partial_feedback:
+                content.append(f"  {self._partial_feedback}", style="yellow")
+        elif self._current_state == "result":
+            if self._passed:
+                content.append(f"  PASS ({self._score}/10) - ", style="bold green")
+            else:
+                content.append(f"  Keep practicing ({self._score}/10) - ", style="bold yellow")
+            if self._result_text:
+                content.append(self._result_text)
+        elif self._current_state == "transitioning":
+            content.append("\n  [Next drill in 2s...]", style="dim")
+
+        border_style = "green" if self._passed and self._current_state == "result" else "blue"
+
+        return Panel(
+            content,
+            title=f"[bold]Level {self._level}: Real-Time Rhythm[/bold]",
+            subtitle="[dim]say 'stop' or press 'q' to quit[/dim]",
+            border_style=border_style,
+        )
+
+    def start(self):
+        """Start the live display."""
+        self.live = Live(
+            self._build_display(),
+            console=self.console,
+            refresh_per_second=4,
+            transient=False,
+        )
+        self.live.start()
+
+    def stop(self):
+        """Stop the live display."""
+        if self.live:
+            self.live.stop()
+            self.live = None
+
+    def set_drill(self, text: str, ipa: str = "", level: int = 1):
+        """Set the current drill information."""
+        self._drill_text = text
+        self._drill_ipa = ipa
+        self._level = level
+        self._partial_feedback = ""
+        self._result_text = ""
+        self._passed = False
+        self._update()
+
+    def show_playing_tts(self):
+        """Show that TTS is playing."""
+        self._current_state = "playing_tts"
+        self._update()
+
+    def show_listening(self):
+        """Show listening state with animation."""
+        self._current_state = "listening"
+        self._update()
+
+    def show_processing(self):
+        """Show processing state."""
+        self._current_state = "processing"
+        self._update()
+
+    def update_partial_feedback(self, feedback: str):
+        """Update with partial streaming feedback."""
+        self._current_state = "feedback"
+        self._partial_feedback = feedback
+        self._update()
+
+    def show_result(self, passed: bool, score: int, feedback: str = ""):
+        """Show the final result."""
+        self._current_state = "result"
+        self._passed = passed
+        self._score = score
+        self._result_text = feedback
+        self._update()
+
+    def show_transitioning(self):
+        """Show transitioning to next drill."""
+        self._current_state = "transitioning"
+        self._update()
+
+    def clear(self):
+        """Clear and reset the display."""
+        self._current_state = "idle"
+        self._drill_text = ""
+        self._drill_ipa = ""
+        self._partial_feedback = ""
+        self._result_text = ""
+        self._update()
+
+    def _update(self):
+        """Update the live display."""
+        if self.live:
+            self.live.update(self._build_display())
