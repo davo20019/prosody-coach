@@ -451,7 +451,7 @@ def display_rhythm_drill_intro(drill: dict, level: int) -> None:
     ))
 
     if drill.get("pattern"):
-        console.print(f"[dim]Pattern: {drill['pattern']}[/dim]")
+        console.print(f"[dim]Pattern: {drill['pattern']}  (o = unstressed, O = STRESSED)[/dim]")
 
     # Show technique with detailed explanation
     technique_text = drill.get("technique", "")
