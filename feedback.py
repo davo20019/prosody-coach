@@ -410,13 +410,17 @@ def display_rhythm_feedback(result, prosody, level: int, passed: bool) -> None:
         ))
 
     # Connected speech guidance (AI-generated)
-    if result.linked:
+    if result.linked or result.stress_pattern:
         console.print()
-        content = f"[bold yellow]Say it like:[/bold yellow] [yellow]{result.linked}[/yellow]"
-        if result.linked_ipa:
-            content += f"\n[dim yellow]{result.linked_ipa}[/dim yellow]"
+        content = ""
+        if result.stress_pattern:
+            content += f"[bold white]Pattern:[/bold white] [white]{result.stress_pattern}[/white]  [dim](o = unstressed, O = STRESSED)[/dim]\n\n"
+        if result.linked:
+            content += f"[bold yellow]Say it like:[/bold yellow] [yellow]{result.linked}[/yellow]"
+            if result.linked_ipa:
+                content += f"\n[dim yellow]{result.linked_ipa}[/dim yellow]"
         console.print(Panel(
-            content,
+            content.strip(),
             title="[bold cyan]Connected Speech[/bold cyan]",
             border_style="cyan",
         ))

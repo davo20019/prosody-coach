@@ -34,6 +34,7 @@ class RhythmCoachingResult:
     # Word-level analysis
     word_stress_issues: list[dict] = None  # [{"word": "...", "expected": "...", "heard": "...", "tip": "..."}]
     # Connected speech guidance (AI-generated)
+    stress_pattern: str = ""  # Dynamic stress pattern, e.g., "o O o O o o O"
     linked: str = ""  # How to say it with connected speech, e.g., "I-WANNA-GO-tuhthuh-STORE"
     linked_ipa: str = ""  # IPA for the connected speech version
 
@@ -1049,6 +1050,7 @@ NPVI_ESTIMATE:
 
 CONNECTED_SPEECH:
 [Show how to say the text with natural connected speech/linking. Format:]
+[PATTERN: Show stress pattern using o (unstressed) and O (STRESSED) for each word, separated by spaces. E.g., "I want to GO to the STORE" = o O o O o o O]
 [LINKED: How to pronounce with reductions and links, e.g., "I-WANNA-GO-tuhthuh-STORE" - use caps for stressed words, lowercase for reduced, hyphens to show linking]
 [IPA: The IPA transcription of the connected version, e.g., /aɪ ˈwɑnə ˈɡoʊ təðə ˈstɔr/]
 [Focus on: consonant-vowel linking, consonant assimilation, common reductions (wanna, gonna, fer, tuh, thuh), and where sounds disappear or blend]
@@ -1224,13 +1226,16 @@ def parse_rhythm_coaching_response(response_text: str) -> RhythmCoachingResult:
             npvi_estimate = max(30.0, min(75.0, npvi_estimate))
 
     # Parse connected speech
+    stress_pattern = ""
     linked = ""
     linked_ipa = ""
     connected_text = sections["CONNECTED_SPEECH:"].strip()
     if connected_text:
         for line in connected_text.split("\n"):
             line = line.strip()
-            if line.upper().startswith("LINKED:"):
+            if line.upper().startswith("PATTERN:"):
+                stress_pattern = line[8:].strip()
+            elif line.upper().startswith("LINKED:"):
                 linked = line[7:].strip().strip('"')
             elif line.upper().startswith("IPA:"):
                 linked_ipa = line[4:].strip().strip('/')
@@ -1250,6 +1255,7 @@ def parse_rhythm_coaching_response(response_text: str) -> RhythmCoachingResult:
         encouragement=sections["ENCOURAGEMENT:"].strip(),
         npvi_estimate=npvi_estimate,
         word_stress_issues=word_stress_issues if word_stress_issues else None,
+        stress_pattern=stress_pattern,
         linked=linked,
         linked_ipa=linked_ipa,
     )
