@@ -1035,7 +1035,10 @@ LEVEL_PASS:
 [YES/NO] | [Reason - did this attempt meet Level {level} requirements? Consider rhythm score >= {min_rhythm_score} and appropriate technique use]
 
 TECHNIQUE_TIP:
-[One specific, actionable tip for the "{drill_technique}" technique that would improve this attempt]
+[Provide a technique tip with TWO parts:]
+[1. WHY: Explain why this matters for English rhythm (e.g., "English listeners expect function words to be nearly invisible - when they're too prominent, it disrupts the stress-timed rhythm and makes speech sound choppy")]
+[2. HOW: One specific, actionable tip for the "{drill_technique}" technique that would improve this attempt]
+[Keep it concise but include both the motivation and the action]
 
 ENCOURAGEMENT:
 [Brief encouraging message about their progress]
