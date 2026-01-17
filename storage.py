@@ -2,9 +2,30 @@
 
 import sqlite3
 import json
+import re
 from datetime import datetime, date, timedelta
 from typing import Optional
-from config import DB_PATH
+from config import DB_PATH, RHYTHM_LEVEL_CONFIG
+
+
+def normalize_sound_name(sound: str) -> str:
+    """
+    Normalize a sound name by removing markdown formatting.
+
+    Examples:
+        '- **Consonant Clusters**' -> 'consonant clusters'
+        '1. S-Clusters' -> 's-clusters'
+        '- SOUND: /θ/' -> 'sound: /θ/'
+    """
+    s = sound.strip()
+    # Remove leading dash/bullet and space
+    s = re.sub(r'^[-•]\s*', '', s)
+    # Remove leading numbers with dot or parenthesis
+    s = re.sub(r'^\d+[.)]\s*', '', s)
+    # Remove markdown bold markers
+    s = s.replace('**', '')
+    # Convert to lowercase and strip
+    return s.lower().strip()
 
 
 def get_db() -> sqlite3.Connection:
@@ -110,6 +131,104 @@ def init_db():
         db.execute("""
             CREATE INDEX IF NOT EXISTS idx_word_tracking_next_review
             ON word_tracking(next_review)
+        """)
+
+        # Rhythm training progress table
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS rhythm_progress (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                current_level INTEGER DEFAULT 1,
+                npvi_baseline REAL,
+                npvi_current REAL,
+                level_1_consecutive_passes INTEGER DEFAULT 0,
+                level_2_consecutive_passes INTEGER DEFAULT 0,
+                level_3_consecutive_passes INTEGER DEFAULT 0,
+                level_4_consecutive_passes INTEGER DEFAULT 0,
+                level_5_consecutive_passes INTEGER DEFAULT 0,
+                level_6_consecutive_passes INTEGER DEFAULT 0,
+                level_1_total_attempts INTEGER DEFAULT 0,
+                level_2_total_attempts INTEGER DEFAULT 0,
+                level_3_total_attempts INTEGER DEFAULT 0,
+                level_4_total_attempts INTEGER DEFAULT 0,
+                level_5_total_attempts INTEGER DEFAULT 0,
+                level_6_total_attempts INTEGER DEFAULT 0,
+                level_1_unlocked_at TEXT,
+                level_2_unlocked_at TEXT,
+                level_3_unlocked_at TEXT,
+                level_4_unlocked_at TEXT,
+                level_5_unlocked_at TEXT,
+                level_6_unlocked_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+        # Rhythm drill tracking for spaced repetition
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS rhythm_drills (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                drill_id TEXT UNIQUE NOT NULL,
+                level INTEGER NOT NULL,
+                times_attempted INTEGER DEFAULT 0,
+                times_passed INTEGER DEFAULT 0,
+                last_attempted TEXT,
+                last_npvi REAL,
+                last_rhythm_score INTEGER,
+                interval_days REAL DEFAULT 1.0,
+                next_review TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_rhythm_drills_next_review
+            ON rhythm_drills(next_review)
+        """)
+        db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_rhythm_drills_level
+            ON rhythm_drills(level)
+        """)
+
+        # Rhythm issues tracking - specific problems identified by AI
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS rhythm_issues (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                issue_type TEXT NOT NULL,  -- 'word_stress', 'reduction', 'timing', 'pattern'
+                word TEXT,                 -- specific word if applicable
+                pattern TEXT,              -- stress pattern (e.g., "oO", "Oo")
+                expected TEXT,             -- expected pronunciation
+                heard TEXT,                -- what was heard
+                level INTEGER NOT NULL,
+                times_encountered INTEGER DEFAULT 1,
+                times_resolved INTEGER DEFAULT 0,
+                last_encountered TEXT NOT NULL,
+                first_encountered TEXT NOT NULL,
+                resolved BOOLEAN DEFAULT 0
+            )
+        """)
+        db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_rhythm_issues_level
+            ON rhythm_issues(level)
+        """)
+        db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_rhythm_issues_resolved
+            ON rhythm_issues(resolved)
+        """)
+
+        # AI mastery evaluations - dynamic level readiness assessments
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS rhythm_mastery_evaluations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                level INTEGER NOT NULL,
+                evaluation_date TEXT NOT NULL,
+                fundamentals_solid BOOLEAN NOT NULL,
+                issues_resolved_count INTEGER DEFAULT 0,
+                issues_remaining_count INTEGER DEFAULT 0,
+                unique_drills_passed INTEGER DEFAULT 0,
+                ai_recommendation TEXT,  -- 'advance', 'practice_more', 'review_basics'
+                ai_reasoning TEXT,        -- AI's explanation
+                npvi_avg REAL,
+                rhythm_score_avg REAL
+            )
         """)
 
 
@@ -596,6 +715,11 @@ def track_sound(sound: str, ipa: str = "", example_word: str = "") -> None:
     """
     init_db()
 
+    # Normalize sound name to avoid duplicates from markdown formatting
+    clean_sound = normalize_sound_name(sound)
+    if not clean_sound:
+        return
+
     today = date.today().isoformat()
     tomorrow = (date.today() + timedelta(days=1)).isoformat()
 
@@ -603,7 +727,7 @@ def track_sound(sound: str, ipa: str = "", example_word: str = "") -> None:
         # Check if sound already exists
         existing = db.execute(
             "SELECT id, times_encountered FROM sound_tracking WHERE sound = ?",
-            (sound,)
+            (clean_sound,)
         ).fetchone()
 
         if existing:
@@ -614,7 +738,7 @@ def track_sound(sound: str, ipa: str = "", example_word: str = "") -> None:
                 SET times_encountered = times_encountered + 1
                 WHERE sound = ?
                 """,
-                (sound,)
+                (clean_sound,)
             )
         else:
             # Add new sound
@@ -625,7 +749,7 @@ def track_sound(sound: str, ipa: str = "", example_word: str = "") -> None:
                     times_encountered, next_review
                 ) VALUES (?, ?, ?, ?, 1, ?)
                 """,
-                (sound, ipa, example_word, today, tomorrow)
+                (clean_sound, ipa, example_word, today, tomorrow)
             )
 
 
@@ -693,13 +817,18 @@ def update_sound_after_practice(sound: str, was_correct: bool) -> None:
     """
     init_db()
 
+    # Normalize sound name for lookup
+    clean_sound = normalize_sound_name(sound)
+    if not clean_sound:
+        return
+
     today = date.today().isoformat()
 
     with get_db() as db:
         # Get current interval
         row = db.execute(
             "SELECT interval_days, times_practiced, times_correct FROM sound_tracking WHERE sound = ?",
-            (sound,)
+            (clean_sound,)
         ).fetchone()
 
         if not row:
@@ -730,7 +859,7 @@ def update_sound_after_practice(sound: str, was_correct: bool) -> None:
                 times_correct = ?
             WHERE sound = ?
             """,
-            (new_interval, next_review, today, times_practiced, times_correct, sound)
+            (new_interval, next_review, today, times_practiced, times_correct, clean_sound)
         )
 
 
@@ -985,3 +1114,815 @@ def get_word_stats() -> dict:
             "needs_work": needs_work,
             "problem_words": [dict(row) for row in problem_words],
         }
+
+
+# =============================================================================
+# Rhythm Training Progress
+# =============================================================================
+
+def get_rhythm_progress() -> dict:
+    """
+    Get current rhythm training progress.
+
+    Returns:
+        Dictionary with current level, nPVI baseline/current, and per-level stats
+    """
+    init_db()
+
+    with get_db() as db:
+        row = db.execute("SELECT * FROM rhythm_progress LIMIT 1").fetchone()
+
+        if not row:
+            # Initialize new progress record
+            now = datetime.now().isoformat()
+            db.execute(
+                """
+                INSERT INTO rhythm_progress (
+                    current_level, created_at, updated_at, level_1_unlocked_at
+                ) VALUES (1, ?, ?, ?)
+                """,
+                (now, now, now)
+            )
+            return {
+                "current_level": 1,
+                "npvi_baseline": None,
+                "npvi_current": None,
+                "levels": {
+                    i: {
+                        "consecutive_passes": 0,
+                        "total_attempts": 0,
+                        "unlocked_at": now if i == 1 else None,
+                        "config": RHYTHM_LEVEL_CONFIG[i],
+                    }
+                    for i in range(1, 7)
+                },
+            }
+
+        # Build levels dict from row
+        levels = {}
+        for i in range(1, 7):
+            levels[i] = {
+                "consecutive_passes": row[f"level_{i}_consecutive_passes"],
+                "total_attempts": row[f"level_{i}_total_attempts"],
+                "unlocked_at": row[f"level_{i}_unlocked_at"],
+                "config": RHYTHM_LEVEL_CONFIG[i],
+            }
+
+        return {
+            "current_level": row["current_level"],
+            "npvi_baseline": row["npvi_baseline"],
+            "npvi_current": row["npvi_current"],
+            "levels": levels,
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+
+def set_rhythm_baseline(npvi: float) -> None:
+    """
+    Set the baseline nPVI for rhythm training.
+
+    Args:
+        npvi: The baseline nPVI value
+    """
+    init_db()
+
+    now = datetime.now().isoformat()
+
+    with get_db() as db:
+        # Check if record exists
+        row = db.execute("SELECT id FROM rhythm_progress LIMIT 1").fetchone()
+
+        if row:
+            db.execute(
+                """
+                UPDATE rhythm_progress
+                SET npvi_baseline = ?, npvi_current = ?, updated_at = ?
+                """,
+                (npvi, npvi, now)
+            )
+        else:
+            db.execute(
+                """
+                INSERT INTO rhythm_progress (
+                    current_level, npvi_baseline, npvi_current,
+                    created_at, updated_at, level_1_unlocked_at
+                ) VALUES (1, ?, ?, ?, ?, ?)
+                """,
+                (npvi, npvi, now, now, now)
+            )
+
+
+def update_rhythm_progress(level: int, npvi: float, rhythm_score: int, passed: bool) -> dict:
+    """
+    Update rhythm training progress after a drill attempt.
+
+    Args:
+        level: The level that was practiced
+        npvi: The nPVI score achieved
+        rhythm_score: The rhythm score (1-10) achieved
+        passed: Whether the attempt passed level requirements
+
+    Returns:
+        Dictionary with updated progress and whether level was mastered
+    """
+    init_db()
+
+    now = datetime.now().isoformat()
+
+    with get_db() as db:
+        # Get current progress
+        row = db.execute("SELECT * FROM rhythm_progress LIMIT 1").fetchone()
+
+        if not row:
+            # Initialize if not exists
+            get_rhythm_progress()
+            row = db.execute("SELECT * FROM rhythm_progress LIMIT 1").fetchone()
+
+        current_consecutive = row[f"level_{level}_consecutive_passes"]
+        total_attempts = row[f"level_{level}_total_attempts"]
+
+        # Update consecutive passes
+        if passed:
+            new_consecutive = current_consecutive + 1
+        else:
+            new_consecutive = 0  # Reset on failure
+
+        new_total = total_attempts + 1
+
+        # Check for level mastery
+        level_config = RHYTHM_LEVEL_CONFIG[level]
+        required_passes = level_config["consecutive_passes"]
+        level_mastered = new_consecutive >= required_passes
+
+        # Update database
+        db.execute(
+            f"""
+            UPDATE rhythm_progress
+            SET level_{level}_consecutive_passes = ?,
+                level_{level}_total_attempts = ?,
+                npvi_current = ?,
+                updated_at = ?
+            """,
+            (new_consecutive, new_total, npvi, now)
+        )
+
+        # If mastered and not at max level, unlock next level
+        next_level_unlocked = False
+        if level_mastered and level < 6:
+            next_level = level + 1
+            # Check if next level is already unlocked
+            next_unlocked_at = row[f"level_{next_level}_unlocked_at"]
+            if not next_unlocked_at:
+                db.execute(
+                    f"""
+                    UPDATE rhythm_progress
+                    SET current_level = ?,
+                        level_{next_level}_unlocked_at = ?
+                    """,
+                    (next_level, now)
+                )
+                next_level_unlocked = True
+
+        return {
+            "level": level,
+            "passed": passed,
+            "consecutive_passes": new_consecutive,
+            "total_attempts": new_total,
+            "required_passes": required_passes,
+            "level_mastered": level_mastered,
+            "next_level_unlocked": next_level_unlocked,
+            "npvi": npvi,
+            "rhythm_score": rhythm_score,
+        }
+
+
+def check_level_mastery(level: int) -> bool:
+    """
+    Check if a specific level has been mastered.
+
+    Args:
+        level: The level to check (1-6)
+
+    Returns:
+        True if the level has been mastered
+    """
+    progress = get_rhythm_progress()
+    level_data = progress["levels"].get(level)
+
+    if not level_data:
+        return False
+
+    required = RHYTHM_LEVEL_CONFIG[level]["consecutive_passes"]
+    return level_data["consecutive_passes"] >= required
+
+
+def get_available_levels() -> list[int]:
+    """
+    Get list of unlocked levels available for practice.
+
+    Returns:
+        List of level numbers that are unlocked
+    """
+    progress = get_rhythm_progress()
+    available = []
+
+    for level in range(1, 7):
+        if progress["levels"][level]["unlocked_at"]:
+            available.append(level)
+
+    return available
+
+
+def save_rhythm_drill_attempt(
+    drill_id: str,
+    level: int,
+    npvi: float,
+    rhythm_score: int,
+    passed: bool
+) -> dict:
+    """
+    Save a rhythm drill attempt with spaced repetition scheduling.
+
+    Args:
+        drill_id: Unique identifier for the drill
+        level: The level of the drill
+        npvi: The nPVI score achieved
+        rhythm_score: The rhythm score (1-10) achieved
+        passed: Whether the attempt passed level requirements
+
+    Returns:
+        Dictionary with drill stats and next review date
+    """
+    init_db()
+
+    now = datetime.now().isoformat()
+    today = date.today().isoformat()
+
+    with get_db() as db:
+        # Check if drill exists
+        row = db.execute(
+            "SELECT * FROM rhythm_drills WHERE drill_id = ?",
+            (drill_id,)
+        ).fetchone()
+
+        if row:
+            times_attempted = row["times_attempted"] + 1
+            times_passed = row["times_passed"] + (1 if passed else 0)
+            current_interval = row["interval_days"]
+
+            # Spaced repetition: double on success, reset on failure
+            if passed:
+                new_interval = min(current_interval * 2, 30.0)
+            else:
+                new_interval = 1.0
+
+            next_review = (date.today() + timedelta(days=new_interval)).isoformat()
+
+            db.execute(
+                """
+                UPDATE rhythm_drills
+                SET times_attempted = ?,
+                    times_passed = ?,
+                    last_attempted = ?,
+                    last_npvi = ?,
+                    last_rhythm_score = ?,
+                    interval_days = ?,
+                    next_review = ?
+                WHERE drill_id = ?
+                """,
+                (times_attempted, times_passed, now, npvi, rhythm_score,
+                 new_interval, next_review, drill_id)
+            )
+
+            return {
+                "drill_id": drill_id,
+                "times_attempted": times_attempted,
+                "times_passed": times_passed,
+                "interval_days": new_interval,
+                "next_review": next_review,
+            }
+        else:
+            # New drill
+            new_interval = 2.0 if passed else 1.0
+            next_review = (date.today() + timedelta(days=new_interval)).isoformat()
+
+            db.execute(
+                """
+                INSERT INTO rhythm_drills (
+                    drill_id, level, times_attempted, times_passed,
+                    last_attempted, last_npvi, last_rhythm_score,
+                    interval_days, next_review, created_at
+                ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (drill_id, level, 1 if passed else 0, now, npvi, rhythm_score,
+                 new_interval, next_review, now)
+            )
+
+            return {
+                "drill_id": drill_id,
+                "times_attempted": 1,
+                "times_passed": 1 if passed else 0,
+                "interval_days": new_interval,
+                "next_review": next_review,
+            }
+
+
+def get_due_rhythm_drills(level: int = None, limit: int = 10) -> list[dict]:
+    """
+    Get rhythm drills that are due for review.
+
+    Args:
+        level: Optional level filter
+        limit: Maximum number of drills to return
+
+    Returns:
+        List of drill dictionaries ordered by priority (most overdue first)
+    """
+    init_db()
+
+    today = date.today().isoformat()
+
+    with get_db() as db:
+        if level:
+            rows = db.execute(
+                """
+                SELECT * FROM rhythm_drills
+                WHERE level = ? AND next_review <= ?
+                ORDER BY next_review ASC, times_passed ASC
+                LIMIT ?
+                """,
+                (level, today, limit)
+            ).fetchall()
+        else:
+            rows = db.execute(
+                """
+                SELECT * FROM rhythm_drills
+                WHERE next_review <= ?
+                ORDER BY next_review ASC, times_passed ASC
+                LIMIT ?
+                """,
+                (today, limit)
+            ).fetchall()
+
+        return [dict(row) for row in rows]
+
+
+def get_rhythm_drill_stats(level: int = None) -> dict:
+    """
+    Get aggregate statistics about rhythm drill progress.
+
+    Args:
+        level: Optional level filter
+
+    Returns:
+        Dictionary with drill statistics
+    """
+    init_db()
+
+    today = date.today().isoformat()
+
+    with get_db() as db:
+        if level:
+            total = db.execute(
+                "SELECT COUNT(*) as count FROM rhythm_drills WHERE level = ?",
+                (level,)
+            ).fetchone()["count"]
+
+            if total == 0:
+                return {
+                    "level": level,
+                    "total_drills": 0,
+                    "due_today": 0,
+                    "mastered": 0,
+                    "needs_work": 0,
+                    "avg_pass_rate": 0,
+                }
+
+            due = db.execute(
+                "SELECT COUNT(*) as count FROM rhythm_drills WHERE level = ? AND next_review <= ?",
+                (level, today)
+            ).fetchone()["count"]
+
+            mastered = db.execute(
+                "SELECT COUNT(*) as count FROM rhythm_drills WHERE level = ? AND interval_days >= 14",
+                (level,)
+            ).fetchone()["count"]
+
+            needs_work = db.execute(
+                """
+                SELECT COUNT(*) as count FROM rhythm_drills
+                WHERE level = ? AND interval_days <= 2 AND times_attempted > 0
+                """,
+                (level,)
+            ).fetchone()["count"]
+
+            avg_pass = db.execute(
+                """
+                SELECT AVG(CAST(times_passed AS REAL) / times_attempted) as avg_rate
+                FROM rhythm_drills
+                WHERE level = ? AND times_attempted > 0
+                """,
+                (level,)
+            ).fetchone()["avg_rate"] or 0
+
+        else:
+            total = db.execute(
+                "SELECT COUNT(*) as count FROM rhythm_drills"
+            ).fetchone()["count"]
+
+            if total == 0:
+                return {
+                    "total_drills": 0,
+                    "due_today": 0,
+                    "mastered": 0,
+                    "needs_work": 0,
+                    "avg_pass_rate": 0,
+                }
+
+            due = db.execute(
+                "SELECT COUNT(*) as count FROM rhythm_drills WHERE next_review <= ?",
+                (today,)
+            ).fetchone()["count"]
+
+            mastered = db.execute(
+                "SELECT COUNT(*) as count FROM rhythm_drills WHERE interval_days >= 14"
+            ).fetchone()["count"]
+
+            needs_work = db.execute(
+                """
+                SELECT COUNT(*) as count FROM rhythm_drills
+                WHERE interval_days <= 2 AND times_attempted > 0
+                """
+            ).fetchone()["count"]
+
+            avg_pass = db.execute(
+                """
+                SELECT AVG(CAST(times_passed AS REAL) / times_attempted) as avg_rate
+                FROM rhythm_drills
+                WHERE times_attempted > 0
+                """
+            ).fetchone()["avg_rate"] or 0
+
+        return {
+            "level": level,
+            "total_drills": total,
+            "due_today": due,
+            "mastered": mastered,
+            "needs_work": needs_work,
+            "avg_pass_rate": round(avg_pass * 100, 1),
+        }
+
+
+# =============================================================================
+# Rhythm Issue Tracking (AI-Powered)
+# =============================================================================
+
+def track_rhythm_issue(
+    issue_type: str,
+    level: int,
+    word: str = None,
+    pattern: str = None,
+    expected: str = None,
+    heard: str = None
+) -> None:
+    """
+    Track a rhythm issue identified by AI analysis.
+
+    Args:
+        issue_type: Type of issue ('word_stress', 'reduction', 'timing', 'pattern')
+        level: Level where the issue was encountered
+        word: Specific word if applicable
+        pattern: Stress pattern (e.g., "oO", "Oo")
+        expected: Expected pronunciation
+        heard: What was actually heard
+    """
+    init_db()
+
+    now = datetime.now().isoformat()
+
+    with get_db() as db:
+        # Check if this exact issue already exists
+        if word:
+            existing = db.execute(
+                """
+                SELECT id, times_encountered FROM rhythm_issues
+                WHERE issue_type = ? AND word = ? AND level = ?
+                """,
+                (issue_type, word, level)
+            ).fetchone()
+        else:
+            existing = db.execute(
+                """
+                SELECT id, times_encountered FROM rhythm_issues
+                WHERE issue_type = ? AND pattern = ? AND level = ?
+                """,
+                (issue_type, pattern, level)
+            ).fetchone()
+
+        if existing:
+            # Increment encounter count, mark as unresolved again
+            db.execute(
+                """
+                UPDATE rhythm_issues
+                SET times_encountered = times_encountered + 1,
+                    last_encountered = ?,
+                    resolved = 0
+                WHERE id = ?
+                """,
+                (now, existing["id"])
+            )
+        else:
+            # Add new issue
+            db.execute(
+                """
+                INSERT INTO rhythm_issues (
+                    issue_type, word, pattern, expected, heard, level,
+                    first_encountered, last_encountered
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (issue_type, word, pattern, expected, heard, level, now, now)
+            )
+
+
+def mark_rhythm_issue_resolved(issue_id: int = None, word: str = None, level: int = None) -> None:
+    """
+    Mark a rhythm issue as resolved (user improved).
+
+    Args:
+        issue_id: Direct ID of the issue
+        word: Word to mark resolved (with level)
+        level: Level of the issue
+    """
+    init_db()
+
+    with get_db() as db:
+        if issue_id:
+            db.execute(
+                """
+                UPDATE rhythm_issues
+                SET times_resolved = times_resolved + 1,
+                    resolved = 1
+                WHERE id = ?
+                """,
+                (issue_id,)
+            )
+        elif word and level:
+            db.execute(
+                """
+                UPDATE rhythm_issues
+                SET times_resolved = times_resolved + 1,
+                    resolved = 1
+                WHERE word = ? AND level = ?
+                """,
+                (word, level)
+            )
+
+
+def get_rhythm_issues(level: int = None, unresolved_only: bool = True) -> list[dict]:
+    """
+    Get tracked rhythm issues.
+
+    Args:
+        level: Optional level filter
+        unresolved_only: If True, only return unresolved issues
+
+    Returns:
+        List of issue dictionaries sorted by frequency
+    """
+    init_db()
+
+    with get_db() as db:
+        if level and unresolved_only:
+            rows = db.execute(
+                """
+                SELECT * FROM rhythm_issues
+                WHERE level = ? AND resolved = 0
+                ORDER BY times_encountered DESC, last_encountered DESC
+                """,
+                (level,)
+            ).fetchall()
+        elif level:
+            rows = db.execute(
+                """
+                SELECT * FROM rhythm_issues
+                WHERE level = ?
+                ORDER BY times_encountered DESC, last_encountered DESC
+                """,
+                (level,)
+            ).fetchall()
+        elif unresolved_only:
+            rows = db.execute(
+                """
+                SELECT * FROM rhythm_issues
+                WHERE resolved = 0
+                ORDER BY times_encountered DESC, last_encountered DESC
+                """
+            ).fetchall()
+        else:
+            rows = db.execute(
+                """
+                SELECT * FROM rhythm_issues
+                ORDER BY times_encountered DESC, last_encountered DESC
+                """
+            ).fetchall()
+
+        return [dict(row) for row in rows]
+
+
+def get_level_mastery_data(level: int) -> dict:
+    """
+    Get comprehensive data for AI to evaluate level mastery.
+
+    Args:
+        level: The level to evaluate
+
+    Returns:
+        Dictionary with all relevant mastery data
+    """
+    init_db()
+
+    today = date.today().isoformat()
+
+    with get_db() as db:
+        # Get progress data
+        progress = get_rhythm_progress()
+        level_data = progress["levels"].get(level, {})
+
+        # Get unique drills passed at this level
+        unique_passed = db.execute(
+            """
+            SELECT COUNT(DISTINCT drill_id) as count FROM rhythm_drills
+            WHERE level = ? AND times_passed > 0
+            """,
+            (level,)
+        ).fetchone()["count"]
+
+        # Get priority 1 drills passed (need to check against prompts.py)
+        priority_1_passed = db.execute(
+            """
+            SELECT drill_id FROM rhythm_drills
+            WHERE level = ? AND times_passed > 0
+            """,
+            (level,)
+        ).fetchall()
+        priority_1_ids = [row["drill_id"] for row in priority_1_passed]
+
+        # Get unresolved issues at this level
+        unresolved_issues = db.execute(
+            """
+            SELECT * FROM rhythm_issues
+            WHERE level = ? AND resolved = 0
+            ORDER BY times_encountered DESC
+            """,
+            (level,)
+        ).fetchall()
+
+        # Get resolved issues (to show improvement)
+        resolved_issues = db.execute(
+            """
+            SELECT COUNT(*) as count FROM rhythm_issues
+            WHERE level = ? AND resolved = 1
+            """,
+            (level,)
+        ).fetchone()["count"]
+
+        # Get recent drill performance (last 10 attempts)
+        recent_attempts = db.execute(
+            """
+            SELECT drill_id, last_npvi, last_rhythm_score, times_passed, times_attempted
+            FROM rhythm_drills
+            WHERE level = ?
+            ORDER BY last_attempted DESC
+            LIMIT 10
+            """,
+            (level,)
+        ).fetchall()
+
+        # Calculate average scores
+        if recent_attempts:
+            npvi_scores = [r["last_npvi"] for r in recent_attempts if r["last_npvi"]]
+            rhythm_scores = [r["last_rhythm_score"] for r in recent_attempts if r["last_rhythm_score"]]
+            avg_npvi = sum(npvi_scores) / len(npvi_scores) if npvi_scores else 0
+            avg_rhythm = sum(rhythm_scores) / len(rhythm_scores) if rhythm_scores else 0
+        else:
+            avg_npvi = 0
+            avg_rhythm = 0
+
+        return {
+            "level": level,
+            "consecutive_passes": level_data.get("consecutive_passes", 0),
+            "total_attempts": level_data.get("total_attempts", 0),
+            "unique_drills_passed": unique_passed,
+            "priority_1_drills_passed": priority_1_ids,
+            "unresolved_issues": [dict(row) for row in unresolved_issues],
+            "resolved_issues_count": resolved_issues,
+            "avg_npvi": round(avg_npvi, 1),
+            "avg_rhythm_score": round(avg_rhythm, 1),
+            "npvi_target": RHYTHM_LEVEL_CONFIG[level]["npvi_target"],
+            "min_rhythm_score": RHYTHM_LEVEL_CONFIG[level]["min_rhythm_score"],
+            "min_unique_drills": RHYTHM_LEVEL_CONFIG[level].get("min_unique_drills", 3),
+        }
+
+
+def save_mastery_evaluation(
+    level: int,
+    fundamentals_solid: bool,
+    issues_resolved: int,
+    issues_remaining: int,
+    unique_drills_passed: int,
+    recommendation: str,
+    reasoning: str,
+    npvi_avg: float = None,
+    rhythm_avg: float = None
+) -> None:
+    """
+    Save an AI mastery evaluation for a level.
+
+    Args:
+        level: The level evaluated
+        fundamentals_solid: Whether fundamentals are solid
+        issues_resolved: Count of resolved issues
+        issues_remaining: Count of remaining issues
+        unique_drills_passed: Count of unique drills passed
+        recommendation: 'advance', 'practice_more', or 'review_basics'
+        reasoning: AI's explanation
+        npvi_avg: Average nPVI score
+        rhythm_avg: Average rhythm score
+    """
+    init_db()
+
+    now = datetime.now().isoformat()
+
+    with get_db() as db:
+        db.execute(
+            """
+            INSERT INTO rhythm_mastery_evaluations (
+                level, evaluation_date, fundamentals_solid,
+                issues_resolved_count, issues_remaining_count,
+                unique_drills_passed, ai_recommendation, ai_reasoning,
+                npvi_avg, rhythm_score_avg
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (level, now, fundamentals_solid, issues_resolved, issues_remaining,
+             unique_drills_passed, recommendation, reasoning, npvi_avg, rhythm_avg)
+        )
+
+
+def get_latest_mastery_evaluation(level: int) -> dict | None:
+    """
+    Get the most recent mastery evaluation for a level.
+
+    Args:
+        level: The level to check
+
+    Returns:
+        Evaluation dictionary or None if no evaluation exists
+    """
+    init_db()
+
+    with get_db() as db:
+        row = db.execute(
+            """
+            SELECT * FROM rhythm_mastery_evaluations
+            WHERE level = ?
+            ORDER BY evaluation_date DESC
+            LIMIT 1
+            """,
+            (level,)
+        ).fetchone()
+
+        return dict(row) if row else None
+
+
+def should_evaluate_mastery(level: int) -> bool:
+    """
+    Check if it's time for a new mastery evaluation.
+
+    Evaluates every 5 attempts or if last evaluation was > 1 day ago.
+
+    Args:
+        level: The level to check
+
+    Returns:
+        True if evaluation is needed
+    """
+    init_db()
+
+    progress = get_rhythm_progress()
+    total_attempts = progress["levels"].get(level, {}).get("total_attempts", 0)
+
+    # Evaluate every 5 attempts
+    if total_attempts > 0 and total_attempts % 5 == 0:
+        return True
+
+    # Also evaluate if last evaluation was > 1 day ago
+    last_eval = get_latest_mastery_evaluation(level)
+    if not last_eval:
+        return total_attempts >= 3  # Need at least 3 attempts for first evaluation
+
+    last_date = datetime.fromisoformat(last_eval["evaluation_date"]).date()
+    if (date.today() - last_date).days >= 1:
+        return True
+
+    return False

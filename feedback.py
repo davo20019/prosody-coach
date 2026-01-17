@@ -409,6 +409,18 @@ def display_rhythm_feedback(result, prosody, level: int, passed: bool) -> None:
             border_style="yellow",
         ))
 
+    # Connected speech guidance (AI-generated)
+    if result.linked:
+        console.print()
+        content = f"[bold yellow]Say it like:[/bold yellow] [yellow]{result.linked}[/yellow]"
+        if result.linked_ipa:
+            content += f"\n[dim yellow]{result.linked_ipa}[/dim yellow]"
+        console.print(Panel(
+            content,
+            title="[bold cyan]Connected Speech[/bold cyan]",
+            border_style="cyan",
+        ))
+
     # Encouragement
     if result.encouragement:
         console.print()
@@ -419,7 +431,7 @@ def display_rhythm_feedback(result, prosody, level: int, passed: bool) -> None:
 
 def display_rhythm_drill_intro(drill: dict, level: int) -> None:
     """Display the drill introduction with text and technique."""
-    from config import RHYTHM_LEVEL_CONFIG
+    from config import RHYTHM_LEVEL_CONFIG, TECHNIQUE_EXPLANATIONS
 
     config = RHYTHM_LEVEL_CONFIG.get(level, {})
     level_name = config.get("name", f"Level {level}")
@@ -438,14 +450,31 @@ def display_rhythm_drill_intro(drill: dict, level: int) -> None:
         padding=(1, 2),
     ))
 
-    if drill.get("tip"):
-        console.print(f"[yellow]Tip:[/yellow] {drill['tip']}")
-
-    if drill.get("technique"):
-        console.print(f"[cyan]Technique:[/cyan] {drill['technique']}")
-
     if drill.get("pattern"):
         console.print(f"[dim]Pattern: {drill['pattern']}[/dim]")
+
+    # Show technique with detailed explanation
+    technique_text = drill.get("technique", "")
+    if technique_text:
+        # If technique already has detailed explanation (long text with colon), show as-is
+        if len(technique_text) > 60 and ":" in technique_text:
+            # Split into name and explanation
+            parts = technique_text.split(":", 1)
+            console.print(f"\n[bold cyan]Technique: {parts[0].strip()}[/bold cyan]")
+            if len(parts) > 1:
+                console.print(f"[cyan]{parts[1].strip()}[/cyan]")
+        else:
+            # Short label - look up detailed explanation
+            console.print(f"\n[bold cyan]Technique: {technique_text}[/bold cyan]")
+            # Try exact match first, then partial match
+            explanation = TECHNIQUE_EXPLANATIONS.get(technique_text)
+            if not explanation:
+                for key, value in TECHNIQUE_EXPLANATIONS.items():
+                    if key.lower() in technique_text.lower() or technique_text.lower() in key.lower():
+                        explanation = value
+                        break
+            if explanation:
+                console.print(f"[cyan]{explanation}[/cyan]")
 
     console.print()
 

@@ -128,10 +128,42 @@ RHYTHM_LEVEL_CONFIG = {
     },
 }
 
+# Technique explanations for rhythm training
+TECHNIQUE_EXPLANATIONS = {
+    # Level 1: Word Stress
+    "Hyper-pronunciation": "Exaggerate the stressed syllable: make it 2x LONGER, noticeably LOUDER, and HIGHER in pitch. Whisper the unstressed syllables.",
+    "Rubber band stretch": "Imagine stretching a rubber band on stressed syllables. Hands together on weak syllables, stretch wide on strong ones.",
+    "Front-weighted punch": "Hit the first syllable like a boxer's jab - quick and powerful. Let the rest trail off like an echo.",
+    "Mountain pattern": "Pitch rises to the stressed syllable (peak), then falls. Draw a mountain in the air as you speak.",
+
+    # Level 2: Function Word Reduction
+    "Backward build-up": "Start from the last word and add words backward: 'do' → 'to do' → 'things to do' → 'lot of things to do'. This builds natural rhythm.",
+    "Content vs function contrast": "Content words (nouns, verbs, adjectives) are LOUD and LONG. Function words (the, to, a, of) are quick whispers.",
+    "Schwa reduction": "Reduce unstressed vowels to 'uh' (schwa): 'to' → 'tuh', 'the' → 'thuh', 'a' → 'uh'. Almost swallow these words.",
+
+    # Level 3: Compound Stress
+    "Contrastive pairs": "Practice pairs to hear the difference: 'BLACKbird' (the bird) vs 'black BIRD' (any bird that's black).",
+    "Meaning determines stress": "Ask: Is it a specific thing (compound)? Stress FIRST. Is it describing a thing? Stress SECOND.",
+
+    # Level 4: Thought Groups
+    "Phrase chunking": "Group 3-5 words that belong together. Pause briefly between chunks. Each chunk has ONE main stress.",
+    "Strategic pausing": "Pause at punctuation, before important info, and between ideas. Pauses give listeners time to process.",
+    "Parenthetical insertion": "Lower your pitch and speed up for inserted info (like this), then return to normal.",
+
+    # Level 5: Full Sentence Rhythm
+    "Shadowing": "Listen to a model, then speak along 1-2 words behind. Match their rhythm exactly, like a shadow.",
+    "Information hierarchy": "Most important words get the most stress. Background info is compressed and quick.",
+
+    # Level 6: Connected Speech
+    "Consonant-vowel linking": "When a word ends in a consonant and the next starts with a vowel, blend them: 'an apple' → 'ana-pple'.",
+    "Consonant cluster reduction": "When consonants meet, some disappear: 'last time' → 'las time', 'next day' → 'nex day'.",
+    "Gonna/wanna patterns": "'Going to' → 'gonna', 'want to' → 'wanna', 'got to' → 'gotta'. These are standard in casual speech.",
+}
+
 # Gemini settings (Phase 2)
 # Set your API key via environment variable: export GEMINI_API_KEY=your_key
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-3-flash-preview"
+GEMINI_MODEL = "gemini-2.5-flash-lite"
 
 # Gemini Live API settings (real-time streaming)
 GEMINI_LIVE_MODEL = "gemini-2.0-flash-exp"

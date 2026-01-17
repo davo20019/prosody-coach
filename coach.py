@@ -13,8 +13,29 @@ import soundfile as sf
 from google import genai
 from google.genai import types
 
-from config import GEMINI_API_KEY, GEMINI_MODEL
+from config import GEMINI_API_KEY, GEMINI_MODEL, RHYTHM_LEVEL_CONFIG
 from analyzer import ProsodyAnalysis
+
+
+@dataclass
+class RhythmCoachingResult:
+    """Results from AI rhythm-specific analysis."""
+    transcript: str
+    rhythm_score: int  # 1-10 scale for rhythm quality
+    timing_feedback: str  # Detailed timing analysis
+    stress_correct: bool  # Whether word stress was correct
+    stress_feedback: str  # Feedback on stress patterns
+    function_reduction: bool  # Whether function words were reduced
+    reduction_feedback: str  # Feedback on reductions
+    level_passed: bool  # Whether the attempt passes level requirements
+    technique_tip: str  # Actionable technique advice
+    encouragement: str  # Motivational feedback
+    npvi_estimate: float = 0  # AI's estimate of nPVI based on perception
+    # Word-level analysis
+    word_stress_issues: list[dict] = None  # [{"word": "...", "expected": "...", "heard": "...", "tip": "..."}]
+    # Connected speech guidance (AI-generated)
+    linked: str = ""  # How to say it with connected speech, e.g., "I-WANNA-GO-tuhthuh-STORE"
+    linked_ipa: str = ""  # IPA for the connected speech version
 
 
 @dataclass
@@ -931,4 +952,623 @@ think /θɪŋk/, weather /ˈweðər/, rather /ˈræðər/, throughout /θruːˈa
         "id": f"tailored_{difficulty}",
         "target_sounds": target_sounds,  # For spaced repetition tracking
         "target_words": target_words,  # Specific mispronounced words to practice
+    }
+
+
+# =============================================================================
+# Rhythm Training AI Analysis
+# =============================================================================
+
+def build_rhythm_coaching_prompt(
+    prosody: ProsodyAnalysis,
+    expected_text: str,
+    level: int,
+    drill_focus: str,
+    drill_technique: str
+) -> str:
+    """
+    Build prompt for rhythm-specific coaching analysis.
+
+    Args:
+        prosody: Results from prosody analysis
+        expected_text: The text the user was asked to read
+        level: Current rhythm training level (1-6)
+        drill_focus: The specific focus of this drill
+        drill_technique: The technique being practiced
+
+    Returns:
+        Prompt string for Gemini
+    """
+    level_config = RHYTHM_LEVEL_CONFIG.get(level, RHYTHM_LEVEL_CONFIG[1])
+    level_name = level_config["name"]
+    npvi_target = level_config["npvi_target"]
+    min_rhythm_score = level_config["min_rhythm_score"]
+
+    return f"""You are an expert English rhythm and prosody coach specializing in helping Spanish speakers develop stress-timed speech patterns.
+
+TASK: Analyze the audio for RHYTHM QUALITY specifically at Level {level}: {level_name}
+
+LEVEL REQUIREMENTS:
+- Level: {level} - {level_name}
+- nPVI Target: {npvi_target}+
+- Minimum Rhythm Score: {min_rhythm_score}/10
+- Drill Focus: {drill_focus}
+- Technique: {drill_technique}
+
+EXPECTED TEXT:
+"{expected_text}"
+
+PROSODY ANALYSIS (measured):
+- Rhythm Score: {prosody.rhythm.score}/10
+- Pitch Variation: {prosody.pitch.range_hz:.0f} Hz
+- Tempo: {prosody.tempo.estimated_wpm:.0f} WPM
+(Note: nPVI is measured separately - provide YOUR independent estimate based on listening)
+
+CONTEXT:
+- Spanish is syllable-timed (equal syllable length, nPVI ~40)
+- English is stress-timed (varied syllable length, nPVI ~60)
+- Higher nPVI = more English-like rhythm
+- This user is working on improving their English rhythm
+
+Please provide your response in this EXACT format:
+
+TRANSCRIPT:
+[Exact transcription of what was said]
+
+RHYTHM_SCORE:
+[Score 1-10] | [Brief explanation of rhythm quality]
+
+TIMING_FEEDBACK:
+[Detailed analysis of syllable timing - which syllables were too equal, which had good contrast]
+
+STRESS_CORRECT:
+[YES/NO] | [Explanation - were the stressed syllables in the right places?]
+
+FUNCTION_REDUCTION:
+[YES/NO] | [Were function words (to, a, the, of) appropriately reduced?]
+
+WORD_STRESS_ISSUES:
+[List any words with incorrect stress, format: word | expected stress | heard stress | tip]
+[If all correct, write: None - stress patterns were correct]
+
+LEVEL_PASS:
+[YES/NO] | [Reason - did this attempt meet Level {level} requirements? Consider rhythm score >= {min_rhythm_score} and appropriate technique use]
+
+TECHNIQUE_TIP:
+[One specific, actionable tip for the "{drill_technique}" technique that would improve this attempt]
+
+ENCOURAGEMENT:
+[Brief encouraging message about their progress]
+
+NPVI_ESTIMATE:
+[Your estimate of their nPVI based on listening: number between 35-70] | [Brief explanation]
+
+CONNECTED_SPEECH:
+[Show how to say the text with natural connected speech/linking. Format:]
+[LINKED: How to pronounce with reductions and links, e.g., "I-WANNA-GO-tuhthuh-STORE" - use caps for stressed words, lowercase for reduced, hyphens to show linking]
+[IPA: The IPA transcription of the connected version, e.g., /aɪ ˈwɑnə ˈɡoʊ təðə ˈstɔr/]
+[Focus on: consonant-vowel linking, consonant assimilation, common reductions (wanna, gonna, fer, tuh, thuh), and where sounds disappear or blend]
+"""
+
+
+def analyze_rhythm_with_coach(
+    audio_data: np.ndarray,
+    sample_rate: int,
+    prosody: ProsodyAnalysis,
+    expected_text: str,
+    level: int,
+    drill_focus: str = "",
+    drill_technique: str = ""
+) -> RhythmCoachingResult:
+    """
+    Analyze audio for rhythm training with AI coaching.
+
+    Args:
+        audio_data: Audio samples as numpy array
+        sample_rate: Sample rate in Hz
+        prosody: Results from prosody analysis
+        expected_text: The text the user was asked to read
+        level: Current rhythm training level (1-6)
+        drill_focus: The specific focus of this drill
+        drill_technique: The technique being practiced
+
+    Returns:
+        RhythmCoachingResult with rhythm-specific feedback
+    """
+    client = get_client()
+    audio_b64 = audio_to_base64(audio_data, sample_rate)
+
+    prompt = build_rhythm_coaching_prompt(
+        prosody, expected_text, level, drill_focus, drill_technique
+    )
+
+    contents = [
+        types.Content(
+            role="user",
+            parts=[
+                types.Part.from_bytes(
+                    data=base64.b64decode(audio_b64),
+                    mime_type="audio/flac"
+                ),
+                types.Part.from_text(text=prompt),
+            ],
+        ),
+    ]
+
+    generate_config = types.GenerateContentConfig(
+        temperature=0.3,
+        max_output_tokens=4096,
+    )
+
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=contents,
+        config=generate_config,
+    )
+
+    return parse_rhythm_coaching_response(extract_text_from_response(response))
+
+
+def parse_rhythm_coaching_response(response_text: str) -> RhythmCoachingResult:
+    """Parse Gemini's response into structured RhythmCoachingResult."""
+    sections = {
+        "TRANSCRIPT:": "",
+        "RHYTHM_SCORE:": "",
+        "TIMING_FEEDBACK:": "",
+        "STRESS_CORRECT:": "",
+        "FUNCTION_REDUCTION:": "",
+        "WORD_STRESS_ISSUES:": "",
+        "LEVEL_PASS:": "",
+        "TECHNIQUE_TIP:": "",
+        "ENCOURAGEMENT:": "",
+        "NPVI_ESTIMATE:": "",
+        "CONNECTED_SPEECH:": "",
+    }
+
+    current_section = None
+    lines = response_text.strip().split("\n")
+
+    for line in lines:
+        line_stripped = line.strip()
+
+        for section_key in sections.keys():
+            if line_stripped.startswith(section_key):
+                current_section = section_key
+                remaining = line_stripped[len(section_key):].strip()
+                if remaining:
+                    sections[current_section] = remaining + "\n"
+                break
+        else:
+            if current_section:
+                sections[current_section] += line + "\n"
+
+    # Parse rhythm score
+    rhythm_score = 5
+    rhythm_text = sections["RHYTHM_SCORE:"].strip()
+    if rhythm_text:
+        if "|" in rhythm_text:
+            parts = rhythm_text.split("|", 1)
+            try:
+                rhythm_score = int(parts[0].strip())
+            except ValueError:
+                numbers = re.findall(r'\d+', parts[0])
+                if numbers:
+                    rhythm_score = min(10, max(1, int(numbers[0])))
+        else:
+            numbers = re.findall(r'\b(\d+)\b', rhythm_text)
+            if numbers:
+                rhythm_score = min(10, max(1, int(numbers[0])))
+
+    # Parse stress correct
+    stress_correct = False
+    stress_feedback = ""
+    stress_text = sections["STRESS_CORRECT:"].strip()
+    if stress_text:
+        if "|" in stress_text:
+            parts = stress_text.split("|", 1)
+            stress_correct = "YES" in parts[0].upper()
+            stress_feedback = parts[1].strip() if len(parts) > 1 else ""
+        else:
+            stress_correct = "YES" in stress_text.upper()
+            stress_feedback = stress_text
+
+    # Parse function reduction
+    function_reduction = False
+    reduction_feedback = ""
+    reduction_text = sections["FUNCTION_REDUCTION:"].strip()
+    if reduction_text:
+        if "|" in reduction_text:
+            parts = reduction_text.split("|", 1)
+            function_reduction = "YES" in parts[0].upper()
+            reduction_feedback = parts[1].strip() if len(parts) > 1 else ""
+        else:
+            function_reduction = "YES" in reduction_text.upper()
+            reduction_feedback = reduction_text
+
+    # Parse level pass
+    level_passed = False
+    level_text = sections["LEVEL_PASS:"].strip()
+    if level_text:
+        level_passed = "YES" in level_text.split("|")[0].upper() if "|" in level_text else "YES" in level_text.upper()
+
+    # Parse word stress issues
+    word_stress_issues = []
+    issues_text = sections["WORD_STRESS_ISSUES:"].strip()
+    if issues_text and "none" not in issues_text.lower():
+        for line in issues_text.split("\n"):
+            line = line.strip()
+            if not line or line.startswith("["):
+                continue
+            if "|" in line:
+                parts = [p.strip() for p in line.split("|")]
+                if len(parts) >= 3:
+                    word_stress_issues.append({
+                        "word": parts[0],
+                        "expected": parts[1] if len(parts) > 1 else "",
+                        "heard": parts[2] if len(parts) > 2 else "",
+                        "tip": parts[3] if len(parts) > 3 else "",
+                    })
+
+    # Parse nPVI estimate
+    npvi_estimate = 45.0
+    npvi_text = sections["NPVI_ESTIMATE:"].strip()
+    if npvi_text:
+        numbers = re.findall(r'\b(\d+(?:\.\d+)?)\b', npvi_text)
+        if numbers:
+            npvi_estimate = float(numbers[0])
+            # Clamp to reasonable range
+            npvi_estimate = max(30.0, min(75.0, npvi_estimate))
+
+    # Parse connected speech
+    linked = ""
+    linked_ipa = ""
+    connected_text = sections["CONNECTED_SPEECH:"].strip()
+    if connected_text:
+        for line in connected_text.split("\n"):
+            line = line.strip()
+            if line.upper().startswith("LINKED:"):
+                linked = line[7:].strip().strip('"')
+            elif line.upper().startswith("IPA:"):
+                linked_ipa = line[4:].strip().strip('/')
+                if linked_ipa:
+                    linked_ipa = f"/{linked_ipa}/"
+
+    return RhythmCoachingResult(
+        transcript=sections["TRANSCRIPT:"].strip(),
+        rhythm_score=rhythm_score,
+        timing_feedback=sections["TIMING_FEEDBACK:"].strip(),
+        stress_correct=stress_correct,
+        stress_feedback=stress_feedback,
+        function_reduction=function_reduction,
+        reduction_feedback=reduction_feedback,
+        level_passed=level_passed,
+        technique_tip=sections["TECHNIQUE_TIP:"].strip(),
+        encouragement=sections["ENCOURAGEMENT:"].strip(),
+        npvi_estimate=npvi_estimate,
+        word_stress_issues=word_stress_issues if word_stress_issues else None,
+        linked=linked,
+        linked_ipa=linked_ipa,
+    )
+
+
+# =============================================================================
+# AI Mastery Evaluation
+# =============================================================================
+
+@dataclass
+class MasteryEvaluationResult:
+    """Result of AI mastery evaluation for a level."""
+    recommendation: str  # 'advance', 'practice_more', 'review_basics'
+    fundamentals_solid: bool
+    reasoning: str
+    focus_areas: list[str]  # Areas to focus on if not advancing
+    confidence: float  # AI's confidence in the recommendation (0-1)
+
+
+def build_mastery_evaluation_prompt(mastery_data: dict) -> str:
+    """Build prompt for AI mastery evaluation."""
+
+    issues_text = ""
+    if mastery_data["unresolved_issues"]:
+        issues_text = "UNRESOLVED ISSUES:\n"
+        for issue in mastery_data["unresolved_issues"][:5]:  # Top 5 issues
+            issues_text += f"- {issue.get('issue_type', 'unknown')}: "
+            if issue.get('word'):
+                issues_text += f"'{issue['word']}' "
+            if issue.get('expected') and issue.get('heard'):
+                issues_text += f"(expected: {issue['expected']}, heard: {issue['heard']})"
+            issues_text += f" - encountered {issue.get('times_encountered', 1)} times\n"
+    else:
+        issues_text = "UNRESOLVED ISSUES: None\n"
+
+    return f"""You are evaluating whether a learner has MASTERED Level {mastery_data['level']} of English rhythm training.
+
+LEVEL {mastery_data['level']} REQUIREMENTS:
+- nPVI target: {mastery_data['npvi_target']}+ (learner average: {mastery_data['avg_npvi']})
+- Rhythm score target: {mastery_data['min_rhythm_score']}+/10 (learner average: {mastery_data['avg_rhythm_score']})
+- Minimum unique drills: {mastery_data['min_unique_drills']} (learner passed: {mastery_data['unique_drills_passed']})
+
+LEARNER PROGRESS:
+- Total attempts at this level: {mastery_data['total_attempts']}
+- Consecutive passes: {mastery_data['consecutive_passes']}
+- Issues resolved: {mastery_data['resolved_issues_count']}
+
+{issues_text}
+
+DRILLS PASSED: {', '.join(mastery_data['priority_1_drills_passed']) if mastery_data['priority_1_drills_passed'] else 'None yet'}
+
+EVALUATION CRITERIA:
+1. FUNDAMENTALS: Are the core patterns of this level solid? (metrics meeting targets)
+2. COVERAGE: Has the learner practiced enough variety? (unique drills)
+3. ISSUES: Are there recurring problems that need resolution?
+4. CONSISTENCY: Is performance consistent, not just occasional passes?
+
+Provide your evaluation in this exact format:
+
+RECOMMENDATION: [advance|practice_more|review_basics]
+FUNDAMENTALS_SOLID: [YES|NO]
+REASONING: [2-3 sentences explaining your decision]
+FOCUS_AREAS: [comma-separated list of specific areas to work on, or "None" if advancing]
+CONFIDENCE: [0.0-1.0 how confident you are in this recommendation]
+
+Be strict but fair. A learner should demonstrate CONSISTENT mastery, not just occasional success.
+If there are unresolved issues with high-frequency words or patterns, recommend more practice.
+Only recommend "advance" if fundamentals are truly solid."""
+
+
+def evaluate_mastery_with_ai(mastery_data: dict) -> MasteryEvaluationResult:
+    """
+    Use AI to evaluate if learner should advance to next level.
+
+    Args:
+        mastery_data: Dictionary from get_level_mastery_data()
+
+    Returns:
+        MasteryEvaluationResult with recommendation and reasoning
+    """
+    client = get_client()
+
+    prompt = build_mastery_evaluation_prompt(mastery_data)
+
+    contents = [
+        types.Content(
+            role="user",
+            parts=[types.Part.from_text(text=prompt)],
+        ),
+    ]
+
+    generate_config = types.GenerateContentConfig(
+        temperature=0.2,  # Lower temperature for more consistent evaluation
+        max_output_tokens=1024,
+    )
+
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=contents,
+        config=generate_config,
+    )
+
+    return parse_mastery_evaluation_response(extract_text_from_response(response))
+
+
+def parse_mastery_evaluation_response(response_text: str) -> MasteryEvaluationResult:
+    """Parse AI mastery evaluation response."""
+
+    sections = {
+        "RECOMMENDATION:": "",
+        "FUNDAMENTALS_SOLID:": "",
+        "REASONING:": "",
+        "FOCUS_AREAS:": "",
+        "CONFIDENCE:": "",
+    }
+
+    current_section = None
+    lines = response_text.strip().split("\n")
+
+    for line in lines:
+        line_stripped = line.strip()
+
+        for section_key in sections.keys():
+            if line_stripped.startswith(section_key):
+                current_section = section_key
+                remaining = line_stripped[len(section_key):].strip()
+                if remaining:
+                    sections[current_section] = remaining + "\n"
+                break
+        else:
+            if current_section:
+                sections[current_section] += line + "\n"
+
+    # Parse recommendation
+    recommendation = sections["RECOMMENDATION:"].strip().lower()
+    if recommendation not in ["advance", "practice_more", "review_basics"]:
+        recommendation = "practice_more"  # Default to cautious
+
+    # Parse fundamentals
+    fundamentals_text = sections["FUNDAMENTALS_SOLID:"].strip().upper()
+    fundamentals_solid = fundamentals_text.startswith("YES")
+
+    # Parse reasoning
+    reasoning = sections["REASONING:"].strip()
+    if not reasoning:
+        reasoning = "Evaluation based on performance metrics."
+
+    # Parse focus areas
+    focus_text = sections["FOCUS_AREAS:"].strip()
+    if focus_text.lower() == "none" or not focus_text:
+        focus_areas = []
+    else:
+        focus_areas = [area.strip() for area in focus_text.split(",") if area.strip()]
+
+    # Parse confidence
+    confidence = 0.7  # Default
+    confidence_text = sections["CONFIDENCE:"].strip()
+    if confidence_text:
+        numbers = re.findall(r'(\d+\.?\d*)', confidence_text)
+        if numbers:
+            confidence = min(1.0, max(0.0, float(numbers[0])))
+
+    return MasteryEvaluationResult(
+        recommendation=recommendation,
+        fundamentals_solid=fundamentals_solid,
+        reasoning=reasoning,
+        focus_areas=focus_areas,
+        confidence=confidence,
+    )
+
+
+def generate_targeted_drill(
+    level: int,
+    issues: list[dict],
+    existing_drills: list[str]
+) -> dict | None:
+    """
+    Use AI to generate a drill targeting specific problem areas.
+
+    Args:
+        level: Current level
+        issues: List of unresolved rhythm issues
+        existing_drills: IDs of drills already attempted
+
+    Returns:
+        Generated drill dictionary or None if generation fails
+    """
+    if not issues:
+        return None
+
+    client = get_client()
+
+    # Build issues summary
+    issues_summary = []
+    for issue in issues[:3]:  # Focus on top 3 issues
+        if issue.get("word"):
+            issues_summary.append(f"Word stress issue with '{issue['word']}'")
+        elif issue.get("pattern"):
+            issues_summary.append(f"Pattern issue with '{issue['pattern']}' pattern")
+        else:
+            issues_summary.append(f"{issue.get('issue_type', 'unknown')} issue")
+
+    from config import RHYTHM_LEVEL_CONFIG
+    level_config = RHYTHM_LEVEL_CONFIG.get(level, {})
+
+    # Determine min/max words based on level
+    if level == 1:
+        min_words, max_words = 5, 8
+        example = "today, because, above, begin, about"
+    else:
+        min_words, max_words = 10, 15
+        example = "I was going to ask you if you wanted to come to the party with us."
+
+    prompt = f"""Generate a rhythm drill for Level {level} ({level_config.get('name', '')}) targeting these specific problem areas:
+
+PROBLEM AREAS:
+{chr(10).join('- ' + issue for issue in issues_summary)}
+
+LEVEL FOCUS: {level_config.get('description', '')}
+TECHNIQUES: {', '.join(level_config.get('techniques', []))}
+
+CRITICAL: Generate a drill with {min_words}-{max_words} words. Example for this level:
+"{example}"
+
+Generate a drill in this EXACT format:
+
+TEXT: [The practice text - MUST be {min_words}-{max_words} words, complete sentences for Level 2+]
+IPA: [Complete IPA transcription of the text]
+PATTERN: [Stress pattern like oO, Oo, oOo, etc.]
+FOCUS: [Brief description of what this drill targets]
+TIP: [Actionable tip for the learner]
+TECHNIQUE: [Specific technique to apply]
+
+Requirements:
+- MUST be {min_words}-{max_words} words (count carefully!)
+- Use common, high-frequency words
+- Target the same patterns as the problem areas
+- Include complete IPA transcription
+- Make it clearly relevant to the issues"""
+
+    contents = [
+        types.Content(
+            role="user",
+            parts=[types.Part.from_text(text=prompt)],
+        ),
+    ]
+
+    generate_config = types.GenerateContentConfig(
+        temperature=0.7,  # Higher temperature for variety
+        max_output_tokens=512,
+    )
+
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=contents,
+            config=generate_config,
+        )
+
+        response_text = extract_text_from_response(response)
+        return parse_generated_drill(response_text, level)
+    except Exception:
+        return None
+
+
+def parse_generated_drill(response_text: str, level: int) -> dict | None:
+    """Parse AI-generated drill response."""
+
+    sections = {
+        "TEXT:": "",
+        "IPA:": "",
+        "PATTERN:": "",
+        "FOCUS:": "",
+        "TIP:": "",
+        "TECHNIQUE:": "",
+    }
+
+    current_section = None
+    lines = response_text.strip().split("\n")
+
+    for line in lines:
+        line_stripped = line.strip()
+
+        for section_key in sections.keys():
+            if line_stripped.startswith(section_key):
+                current_section = section_key
+                remaining = line_stripped[len(section_key):].strip()
+                if remaining:
+                    sections[current_section] = remaining
+                break
+        else:
+            if current_section and not sections[current_section]:
+                sections[current_section] = line_stripped
+
+    text = sections["TEXT:"].strip()
+    if not text:
+        return None
+
+    # Validate text length - reject drills that are too short
+    word_count = len(text.split())
+    min_words = 5 if level == 1 else 8  # Level 1: 5 words min, Level 2+: 8 words min
+    if word_count < min_words:
+        return None  # Reject short drills
+
+    # Validate IPA is not empty or trivial
+    ipa = sections["IPA:"].strip()
+    if not ipa or ipa == "/" or ipa == "//":
+        ipa = ""  # Clear invalid IPA
+
+    # Generate a unique ID for the generated drill
+    import hashlib
+    drill_hash = hashlib.md5(text.encode()).hexdigest()[:6]
+    drill_id = f"ai_l{level}_{drill_hash}"
+
+    return {
+        "id": drill_id,
+        "text": text,
+        "ipa": ipa,
+        "pattern": sections["PATTERN:"].strip() or "variable",
+        "focus": sections["FOCUS:"].strip() or "AI-generated targeted practice",
+        "tip": sections["TIP:"].strip() or "",
+        "technique": sections["TECHNIQUE:"].strip() or "",
+        "priority": 1,  # AI-generated drills target problems, so high priority
+        "generated": True,
+        "level": level,
     }

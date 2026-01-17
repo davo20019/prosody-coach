@@ -942,12 +942,8 @@ def rhythm(
 
         # Training loop
         while True:
-            # Display drill
+            # Display drill (IPA shows pronunciation - no TTS to avoid bad rhythm model)
             display_rhythm_drill_intro(drill, practice_level)
-
-            # Play TTS reference
-            console.print("[bold cyan]Listen first...[/bold cyan]")
-            play_tts(drill["text"])
 
             # Record
             console.print()
@@ -1132,11 +1128,13 @@ def rhythm(
             console.print()
             console.print("[dim]─" * 40 + "[/dim]")
 
-            # Drain any pending stdin
+            # Flush any pending stdin (fixes double-enter issue on macOS)
             import sys
-            import select
-            while select.select([sys.stdin], [], [], 0)[0]:
-                sys.stdin.readline()
+            import termios
+            try:
+                termios.tcflush(sys.stdin, termios.TCIFLUSH)
+            except Exception:
+                pass  # Ignore if not a terminal
 
             action = Prompt.ask("Press Enter for next drill, q to quit", default="", show_default=False)
 
