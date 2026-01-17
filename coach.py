@@ -719,7 +719,7 @@ def display_coaching(result: CoachingResult, console) -> None:
                 cat_display = category.capitalize()
                 if category == "naturalness":
                     cat_display = "[bold]Naturalness[/bold]"
-                table.add_row(cat_display, score_display, feedback[:80] + "..." if len(feedback) > 80 else feedback)
+                table.add_row(cat_display, score_display, feedback)
 
         console.print(table)
 
