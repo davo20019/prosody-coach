@@ -97,8 +97,24 @@ def extract_text_from_response(response) -> str:
         sys.stdout, sys.stderr = old_stdout, old_stderr
 
 
-def audio_to_base64(audio_data: np.ndarray, sample_rate: int) -> str:
-    """Convert audio numpy array to base64-encoded FLAC (compressed, lossless)."""
+def audio_to_base64(audio_data: np.ndarray, sample_rate: int, trim: bool = True) -> str:
+    """
+    Convert audio numpy array to base64-encoded FLAC (compressed, lossless).
+
+    Args:
+        audio_data: Audio samples as numpy array
+        sample_rate: Sample rate in Hz
+        trim: If True, trim silence from start/end before encoding
+
+    Returns:
+        Base64-encoded FLAC audio string
+    """
+    from recorder import trim_silence
+
+    # Trim silence to reduce file size and API processing time
+    if trim:
+        audio_data = trim_silence(audio_data, sample_rate)
+
     with tempfile.NamedTemporaryFile(suffix=".flac", delete=False) as f:
         temp_path = f.name
         # Save as FLAC (50-60% smaller than WAV, lossless quality)
@@ -166,6 +182,69 @@ def analyze_with_coach(
 
     # Parse the response
     return parse_coaching_response(extract_text_from_response(response))
+
+
+def analyze_with_coach_streaming(
+    audio_data: np.ndarray,
+    sample_rate: int,
+    prosody: ProsodyAnalysis,
+    on_chunk: callable = None
+) -> CoachingResult:
+    """
+    Send audio to Gemini with streaming response for faster perceived feedback.
+
+    Args:
+        audio_data: Audio samples as numpy array
+        sample_rate: Sample rate in Hz
+        prosody: Results from prosody analysis
+        on_chunk: Optional callback called with each text chunk as it arrives
+
+    Returns:
+        CoachingResult with transcription, grammar, and coaching tips
+    """
+    client = get_client()
+
+    # Convert audio to base64 (with silence trimming)
+    audio_b64 = audio_to_base64(audio_data, sample_rate)
+
+    # Build the prompt with prosody context
+    prompt = build_coaching_prompt(prosody)
+
+    # Create the content with audio
+    contents = [
+        types.Content(
+            role="user",
+            parts=[
+                types.Part.from_bytes(
+                    data=base64.b64decode(audio_b64),
+                    mime_type="audio/flac"
+                ),
+                types.Part.from_text(text=prompt),
+            ],
+        ),
+    ]
+
+    # Configure generation
+    generate_config = types.GenerateContentConfig(
+        temperature=0.3,
+        max_output_tokens=8192,
+    )
+
+    # Use streaming for faster perceived response
+    accumulated_text = ""
+    for chunk in client.models.generate_content_stream(
+        model=GEMINI_MODEL,
+        contents=contents,
+        config=generate_config,
+    ):
+        chunk_text = extract_text_from_response(chunk)
+        if chunk_text:
+            accumulated_text += chunk_text
+            if on_chunk:
+                on_chunk(chunk_text, accumulated_text)
+
+    # Parse the complete response
+    return parse_coaching_response(accumulated_text)
 
 
 def analyze_with_coach_practice(
@@ -371,6 +450,156 @@ AI_PROSODY:
 OVERALL:
 [One paragraph summary of strengths and the #1 thing to focus on improving]
 """
+
+
+def build_coaching_prompt_standalone() -> str:
+    """Build coaching prompt without prosody data for faster parallel execution."""
+    return """You are an English speech coach helping a Spanish speaker improve their English communication.
+
+TASK: Analyze this audio recording and provide detailed feedback.
+
+Please provide your response in this EXACT format:
+
+TRANSCRIPT:
+[Write the exact transcription of what was said]
+
+GRAMMAR_ISSUES:
+[List each grammar or pronunciation issue on a new line in this format:]
+["original text" -> "corrected text" /IPA/ | explanation]
+[Include IPA pronunciation in slashes for mispronounced words, e.g., "think" /θɪŋk/]
+[If no issues, write: None]
+
+SUGGESTED_REVISION:
+[Write a polished version of what was said, fixing grammar and making it more natural]
+
+COACHING_TIPS:
+[List 3-5 specific, actionable tips. Focus on:]
+[1. The weakest aspect of their speech (pitch, rhythm, tempo, etc.)]
+[2. Any grammar patterns common for Spanish speakers]
+[3. Word choice or phrasing improvements]
+[4. Specific moments in the recording that could be improved]
+
+VOCAL_CONFIDENCE:
+[Rate how confident the speaker sounds from 1-10, where:]
+[1-3 = Nervous/hesitant (shaky voice, many fillers, trailing off)]
+[4-6 = Somewhat confident (occasional hesitation, some uncertainty)]
+[7-9 = Confident (steady voice, good projection, deliberate)]
+[10 = Very confident (commanding, assured, natural authority)]
+[Format: SCORE | explanation of what specific vocal qualities led to this score]
+
+FILLER_WORDS:
+[Count filler words/hesitation markers: um, uh, er, like, you know, so, basically, I mean, kind of, sort of]
+[Format: COUNT | list each filler word heard with its count, e.g., "um (3), like (2)"]
+[If no filler words, write: 0 | None detected]
+
+PRONUNCIATION_ISSUES:
+[List specific sounds that need work, especially common issues for Spanish speakers:]
+[Format each as: SOUND | example word /IPA/ | tip for improvement]
+[Common issues: th /θ/, v vs b, short vs long vowels, word-final consonants, consonant clusters]
+[If pronunciation is clear, write: None - pronunciation was clear]
+
+FLUENCY:
+[Rate speaking fluency from 1-10, where:]
+[1-3 = Choppy (frequent stops, restarts, long pauses mid-sentence)]
+[4-6 = Moderate (some hesitations, occasional restarts)]
+[7-9 = Fluent (smooth flow, natural rhythm, minimal hesitation)]
+[10 = Native-like fluency (effortless, natural speech flow)]
+[Format: SCORE | explanation of fluency assessment]
+
+AI_PROSODY:
+[Analyze the audio and provide your perception of these prosody elements:]
+[Format each line as: CATEGORY: SCORE/10 | your observation]
+- PITCH: [Score 1-10] | [Is there enough pitch variation? Does intonation sound natural for English?]
+- VOLUME: [Score 1-10] | [Is volume appropriate? Good stress contrast between syllables?]
+- TEMPO: [Score 1-10] | [Is the pace natural? Estimate WPM if possible. Too fast/slow?]
+- RHYTHM: [Score 1-10] | [Does it have English stress-timed rhythm? Or syllable-timed like Spanish?]
+- PAUSES: [Score 1-10] | [Are pauses placed naturally at phrase boundaries?]
+- NATURALNESS: [Score 1-10] | [Overall, how natural does this sound to a native English ear?]
+
+OVERALL:
+[One paragraph summary of strengths and the #1 thing to focus on improving]
+"""
+
+
+def analyze_parallel(
+    audio_data: np.ndarray,
+    sample_rate: int,
+    on_chunk: callable = None
+) -> tuple:
+    """
+    Run prosody analysis and Gemini coaching in parallel for faster results.
+
+    Args:
+        audio_data: Audio samples as numpy array
+        sample_rate: Sample rate in Hz
+        on_chunk: Optional callback for streaming chunks
+
+    Returns:
+        Tuple of (ProsodyAnalysis, CoachingResult)
+    """
+    import concurrent.futures
+    from analyzer import analyze_prosody
+
+    # Prepare audio for Gemini (with trimming)
+    audio_b64 = audio_to_base64(audio_data, sample_rate)
+
+    def run_gemini():
+        client = get_client()
+        prompt = build_coaching_prompt_standalone()
+
+        contents = [
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_bytes(
+                        data=base64.b64decode(audio_b64),
+                        mime_type="audio/flac"
+                    ),
+                    types.Part.from_text(text=prompt),
+                ],
+            ),
+        ]
+
+        generate_config = types.GenerateContentConfig(
+            temperature=0.3,
+            max_output_tokens=8192,
+        )
+
+        if on_chunk:
+            # Streaming mode
+            accumulated_text = ""
+            for chunk in client.models.generate_content_stream(
+                model=GEMINI_MODEL,
+                contents=contents,
+                config=generate_config,
+            ):
+                chunk_text = extract_text_from_response(chunk)
+                if chunk_text:
+                    accumulated_text += chunk_text
+                    on_chunk(chunk_text, accumulated_text)
+            return parse_coaching_response(accumulated_text)
+        else:
+            # Non-streaming mode
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=contents,
+                config=generate_config,
+            )
+            return parse_coaching_response(extract_text_from_response(response))
+
+    def run_prosody():
+        return analyze_prosody(audio_data, sample_rate)
+
+    # Run both in parallel
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        gemini_future = executor.submit(run_gemini)
+        prosody_future = executor.submit(run_prosody)
+
+        # Wait for both to complete
+        coaching = gemini_future.result()
+        prosody = prosody_future.result()
+
+    return prosody, coaching
 
 
 def parse_coaching_response(response_text: str) -> CoachingResult:

@@ -10,7 +10,7 @@ from typing import Optional
 from recorder import record_audio, save_recording, load_audio, get_duration, play_audio, play_tts
 from analyzer import analyze_prosody
 from feedback import display_analysis, display_quick_feedback
-from coach import analyze_with_coach, display_coaching
+from coach import analyze_with_coach, analyze_parallel, display_coaching
 from prompts import (
     get_prompt_by_id,
     get_prompts_by_category,
@@ -129,18 +129,7 @@ def analyze(
                 filepath = save_recording(audio_data, sample_rate)
                 console.print(f"[dim]Saved to: {filepath}[/dim]\n")
 
-        # Analyze prosody
-        console.print("[dim]Analyzing prosody...[/dim]")
-        analysis = analyze_prosody(audio_data, sample_rate)
-
-        # Display results
-        if quick:
-            display_quick_feedback(analysis)
-        else:
-            display_analysis(analysis)
-
-        # Save session to database
-        import threading
+        # Initialize result variables
         transcript = None
         ai_summary = None
         ai_tips = None
@@ -153,49 +142,113 @@ def analyze(
         pronunciation_issues = None
         fluency_score = None
         fluency_feedback = None
-        coaching_result = {"coaching": None, "error": None}
+        analysis = None
+        coaching = None
 
-        def fetch_coaching():
-            try:
-                coaching_result["coaching"] = analyze_with_coach(audio_data, sample_rate, analysis)
-            except Exception as e:
-                coaching_result["error"] = str(e)
-
-        # Start AI coaching in background if enabled
-        ai_thread = None
         if coach:
-            ai_thread = threading.Thread(target=fetch_coaching)
-            ai_thread.start()
+            # PARALLEL MODE: Run prosody + Gemini simultaneously with streaming
+            from rich.live import Live
+            from rich.spinner import Spinner
+            from rich.text import Text
 
-        # Playback while AI processes
+            # Track streaming progress
+            stream_state = {"section": "Starting", "preview": "", "chunks": 0}
+
+            def on_chunk(chunk, accumulated):
+                stream_state["chunks"] += 1
+                # Detect which section we're in
+                sections = ["TRANSCRIPT", "GRAMMAR", "COACHING", "CONFIDENCE", "FLUENCY", "PROSODY", "OVERALL"]
+                for section in reversed(sections):
+                    if section in accumulated:
+                        stream_state["section"] = section.capitalize()
+                        break
+
+                # Get transcript preview when available
+                if "TRANSCRIPT:" in accumulated and not stream_state["preview"]:
+                    lines = accumulated.split("\n")
+                    for i, line in enumerate(lines):
+                        if "TRANSCRIPT:" in line:
+                            for next_line in lines[i+1:i+3]:
+                                if next_line.strip() and not next_line.startswith("["):
+                                    stream_state["preview"] = next_line.strip()[:50]
+                                    break
+                            break
+
+            try:
+                with Live(console=console, refresh_per_second=4, transient=True) as live:
+                    import threading
+                    result_holder = {"analysis": None, "coaching": None, "error": None}
+
+                    def run_analysis():
+                        try:
+                            result_holder["analysis"], result_holder["coaching"] = analyze_parallel(
+                                audio_data, sample_rate, on_chunk
+                            )
+                        except Exception as e:
+                            result_holder["error"] = str(e)
+
+                    thread = threading.Thread(target=run_analysis)
+                    thread.start()
+
+                    # Update display while waiting
+                    spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+                    frame = 0
+                    while thread.is_alive():
+                        spinner = spinner_frames[frame % len(spinner_frames)]
+                        text = Text()
+                        text.append(f"  {spinner} ", style="cyan")
+                        text.append("Analyzing", style="cyan bold")
+                        text.append(f"  {stream_state['section']}", style="dim")
+                        if stream_state["preview"]:
+                            text.append(f'\n  "{stream_state["preview"]}..."', style="italic dim")
+                        live.update(text)
+                        frame += 1
+                        thread.join(timeout=0.1)
+
+                    thread.join()
+
+                if result_holder["error"]:
+                    raise Exception(result_holder["error"])
+
+                analysis = result_holder["analysis"]
+                coaching = result_holder["coaching"]
+
+            except Exception as e:
+                console.print(f"[yellow]AI coaching unavailable: {e}[/yellow]")
+                # Fall back to local prosody only
+                console.print("[dim]Falling back to local analysis...[/dim]")
+                analysis = analyze_prosody(audio_data, sample_rate)
+        else:
+            # LOCAL ONLY: Just prosody analysis
+            console.print("[dim]Analyzing prosody...[/dim]")
+            analysis = analyze_prosody(audio_data, sample_rate)
+
+        # Display local prosody results
+        if quick:
+            display_quick_feedback(analysis)
+        else:
+            display_analysis(analysis)
+
+        # Display AI coaching if available
+        if coaching:
+            display_coaching(coaching, console)
+            transcript = coaching.transcript
+            ai_summary = coaching.overall_feedback
+            ai_tips = coaching.coaching_tips
+            grammar_issues = coaching.grammar_issues
+            suggested_revision = coaching.suggested_revision
+            confidence_score = coaching.confidence_score
+            confidence_feedback = coaching.confidence_feedback
+            filler_word_count = coaching.filler_word_count
+            filler_words_detail = coaching.filler_words_detail
+            pronunciation_issues = coaching.pronunciation_issues
+            fluency_score = coaching.fluency_score
+            fluency_feedback = coaching.fluency_feedback
+
+        # Playback
         if playback:
-            msg = "[dim]Playing back (AI processing in background)...[/dim]" if coach else "[dim]Playing back your recording...[/dim]"
-            console.print(msg)
+            console.print("[dim]Playing back your recording...[/dim]")
             play_audio(audio_data, sample_rate)
-
-        # Wait for AI to finish if still running
-        if ai_thread:
-            if ai_thread.is_alive():
-                console.print("[dim]Waiting for AI feedback...[/dim]")
-            ai_thread.join()
-
-            if coaching_result["coaching"]:
-                coaching = coaching_result["coaching"]
-                display_coaching(coaching, console)
-                transcript = coaching.transcript
-                ai_summary = coaching.overall_feedback
-                ai_tips = coaching.coaching_tips
-                grammar_issues = coaching.grammar_issues
-                suggested_revision = coaching.suggested_revision
-                confidence_score = coaching.confidence_score
-                confidence_feedback = coaching.confidence_feedback
-                filler_word_count = coaching.filler_word_count
-                filler_words_detail = coaching.filler_words_detail
-                pronunciation_issues = coaching.pronunciation_issues
-                fluency_score = coaching.fluency_score
-                fluency_feedback = coaching.fluency_feedback
-            elif coaching_result["error"]:
-                console.print(f"[yellow]AI coaching unavailable: {coaching_result['error']}[/yellow]")
 
         # Save session
         save_session(

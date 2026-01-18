@@ -18,6 +18,71 @@ from rich.text import Text
 from config import SAMPLE_RATE, CHANNELS, RECORDINGS_DIR, REALTIME_AUDIO_CHUNK_MS
 
 
+def trim_silence(
+    audio_data: np.ndarray,
+    sample_rate: int = SAMPLE_RATE,
+    threshold_db: float = -40,
+    padding_ms: float = 100
+) -> np.ndarray:
+    """
+    Remove silence from the beginning and end of audio.
+
+    Args:
+        audio_data: Audio samples as numpy array
+        sample_rate: Sample rate in Hz
+        threshold_db: Silence threshold in dB (default -40dB)
+        padding_ms: Padding to keep around speech in milliseconds
+
+    Returns:
+        Trimmed audio data
+    """
+    if len(audio_data) == 0:
+        return audio_data
+
+    # Convert threshold from dB to linear amplitude
+    threshold = 10 ** (threshold_db / 20)
+
+    # Calculate RMS energy in small windows (10ms)
+    window_size = int(sample_rate * 0.01)  # 10ms windows
+    if window_size == 0:
+        window_size = 1
+
+    # Pad audio to make it divisible by window size
+    pad_length = (window_size - len(audio_data) % window_size) % window_size
+    if pad_length > 0:
+        padded = np.pad(audio_data, (0, pad_length), mode='constant')
+    else:
+        padded = audio_data
+
+    # Reshape and calculate RMS per window
+    windows = padded.reshape(-1, window_size)
+    rms = np.sqrt(np.mean(windows ** 2, axis=1))
+
+    # Find windows above threshold
+    above_threshold = rms > threshold
+
+    if not above_threshold.any():
+        # All silence - return a small portion from the middle
+        mid = len(audio_data) // 2
+        padding_samples = int(sample_rate * padding_ms / 1000)
+        return audio_data[max(0, mid - padding_samples):min(len(audio_data), mid + padding_samples)]
+
+    # Find first and last non-silent windows
+    first_window = above_threshold.argmax()
+    last_window = len(above_threshold) - above_threshold[::-1].argmax() - 1
+
+    # Convert window indices to sample indices
+    first_sample = first_window * window_size
+    last_sample = (last_window + 1) * window_size
+
+    # Add padding
+    padding_samples = int(sample_rate * padding_ms / 1000)
+    first_sample = max(0, first_sample - padding_samples)
+    last_sample = min(len(audio_data), last_sample + padding_samples)
+
+    return audio_data[first_sample:last_sample]
+
+
 def record_audio(
     duration: Optional[float] = None,
     stop_on_enter: bool = True
