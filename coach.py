@@ -6,7 +6,6 @@ import base64
 import tempfile
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Optional
 import numpy as np
 import soundfile as sf
 
@@ -740,6 +739,7 @@ def parse_coaching_response(response_text: str) -> CoachingResult:
                     ipa_match = re.search(r'/([^/]+)/', example)
                     if ipa_match:
                         ipa = ipa_match.group(1)
+                        example = re.sub(r'\s*/[^/]+/\s*', ' ', example).strip()
                     pronunciation_issues.append({
                         "sound": sound,
                         "example": example,
@@ -1278,11 +1278,11 @@ NPVI_ESTIMATE:
 [Your estimate of their nPVI based on listening: number between 35-70] | [Brief explanation]
 
 CONNECTED_SPEECH:
-[Show how to say the text with natural connected speech/linking. Format:]
-[PATTERN: Show stress pattern using o (unstressed) and O (STRESSED) for each word, separated by spaces. E.g., "I want to GO to the STORE" = o O o O o o O]
-[LINKED: How to pronounce with reductions and links, e.g., "I-WANNA-GO-tuhthuh-STORE" - use caps for stressed words, lowercase for reduced, hyphens to show linking]
-[IPA: The IPA transcription of the connected version, e.g., /aɪ ˈwɑnə ˈɡoʊ təðə ˈstɔr/]
-[Focus on: consonant-vowel linking, consonant assimilation, common reductions (wanna, gonna, fer, tuh, thuh), and where sounds disappear or blend]
+[ALWAYS provide all three lines below. They must be CONSISTENT - the same words are stressed in PATTERN and LINKED:]
+PATTERN: [One o or O per word, space-separated. o=unstressed, O=STRESSED content word. E.g., "I think I should go" = o O o o O]
+LINKED: [Show pronunciation with reductions. CAPS=stressed (must match O in PATTERN), lowercase=reduced. E.g., "i-THINK-i-shud-GO"]
+IPA: [IPA of connected version, e.g., /aɪ ˈθɪŋk aɪ ʃəd ˈɡoʊ/]
+[Stressed words in PATTERN (O) MUST match capitalized words in LINKED. Content words (nouns, verbs, adjectives, adverbs) get stress. Function words (the, to, a, of, and, I) get reduced.]
 """
 
 

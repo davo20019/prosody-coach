@@ -1,9 +1,11 @@
 """Prosody analysis module using Parselmouth (Praat)."""
 
+import logging
 import numpy as np
 import parselmouth
 from parselmouth.praat import call
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Tuple, Optional
 
 from config import (
@@ -12,7 +14,10 @@ from config import (
     TEMPO_CONFIG,
     RHYTHM_CONFIG,
     PAUSE_CONFIG,
+    ALIGNMENT_CONFIG,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -53,9 +58,14 @@ class TempoAnalysis:
 class RhythmAnalysis:
     """Results of rhythm analysis."""
     score: int  # 1-10
-    pvi: float  # Pairwise Variability Index
+    pvi: float  # Primary nPVI (vocalic if available, IOI as fallback)
     is_syllable_timed: bool
     feedback: str
+    # New fields for vocalic nPVI
+    pvi_type: str = "ioi"  # "vocalic" or "ioi"
+    pvi_ioi: Optional[float] = None  # Inter-onset interval based nPVI
+    pvi_vocalic: Optional[float] = None  # True vocalic nPVI from forced alignment
+    vowel_count: Optional[int] = None  # Number of vowels used for vocalic nPVI
 
 
 @dataclass
@@ -94,13 +104,20 @@ class ProsodyAnalysis:
         }
 
 
-def analyze_prosody(audio_data: np.ndarray, sample_rate: int) -> ProsodyAnalysis:
+def analyze_prosody(
+    audio_data: np.ndarray,
+    sample_rate: int,
+    expected_text: Optional[str] = None,
+    audio_path: Optional[Path] = None,
+) -> ProsodyAnalysis:
     """
     Perform complete prosody analysis on audio data.
 
     Args:
         audio_data: Audio samples as numpy array
         sample_rate: Sample rate in Hz
+        expected_text: Optional transcript for vocalic nPVI measurement
+        audio_path: Optional path to audio file for forced alignment
 
     Returns:
         ProsodyAnalysis with all component results
@@ -113,7 +130,7 @@ def analyze_prosody(audio_data: np.ndarray, sample_rate: int) -> ProsodyAnalysis
     pitch_result = analyze_pitch(sound)
     volume_result = analyze_volume(sound)
     tempo_result = analyze_tempo(sound)
-    rhythm_result = analyze_rhythm(sound)
+    rhythm_result = analyze_rhythm_with_alignment(sound, audio_path, expected_text)
     pause_result = analyze_pauses(sound)
 
     # Calculate overall score (weighted average)
@@ -421,18 +438,236 @@ def analyze_tempo(sound: parselmouth.Sound) -> TempoAnalysis:
     )
 
 
-def analyze_rhythm(sound: parselmouth.Sound) -> RhythmAnalysis:
+def calculate_npvi(intervals: List[float]) -> float:
     """
-    Analyze speech rhythm using normalized Pairwise Variability Index (nPVI).
+    Calculate normalized Pairwise Variability Index (nPVI).
+
+    Formula: nPVI = 100 × [Σ |dₖ - dₖ₊₁| / ((dₖ + dₖ₊₁)/2)] / (m-1)
 
     Based on Grabe & Low (2002) methodology.
-    Standard nPVI uses vocalic intervals; we approximate using syllable nuclei timing.
+
+    Args:
+        intervals: List of interval durations (vowel durations or IOIs)
+
+    Returns:
+        nPVI value (typically 40-70 for natural speech)
+    """
+    if len(intervals) < 2:
+        return 0.0
+
+    pvi_sum = 0.0
+    for i in range(len(intervals) - 1):
+        d1, d2 = intervals[i], intervals[i + 1]
+        if d1 + d2 > 0:  # Avoid division by zero
+            pvi_sum += abs(d1 - d2) / ((d1 + d2) / 2)
+
+    return (pvi_sum / (len(intervals) - 1)) * 100 if len(intervals) > 1 else 0.0
+
+
+def analyze_rhythm_vocalic(vowel_durations: List[float], sound: parselmouth.Sound) -> RhythmAnalysis:
+    """
+    Analyze speech rhythm using true vocalic intervals from forced alignment.
+
+    This is the Grabe & Low (2002) standard methodology using actual vowel
+    durations extracted from forced alignment.
+
+    Args:
+        vowel_durations: List of vowel durations in seconds from forced alignment
+        sound: Parselmouth Sound object for duration
+
+    Returns:
+        RhythmAnalysis with vocalic nPVI measurement
+    """
+    config = RHYTHM_CONFIG
+    min_vowels = ALIGNMENT_CONFIG.get("min_vowels_required", 3)
+
+    if len(vowel_durations) < min_vowels:
+        return RhythmAnalysis(
+            score=5,
+            pvi=0,
+            is_syllable_timed=True,
+            feedback=f"Not enough vowels detected ({len(vowel_durations)}) for vocalic nPVI.",
+            pvi_type="vocalic",
+            vowel_count=len(vowel_durations),
+        )
+
+    # Calculate vocalic nPVI
+    pvi = calculate_npvi(vowel_durations)
+
+    # Determine if syllable-timed
+    is_syllable_timed = pvi < config["english_target"]
+
+    # Calculate score
+    if pvi >= config["english_native"]:
+        score = 10
+    elif pvi >= config["english_target"]:
+        score = 7 + int((pvi - config["english_target"]) /
+                        (config["english_native"] - config["english_target"]) * 3)
+    elif pvi >= config["spanish_typical"]:
+        score = 4 + int((pvi - config["spanish_typical"]) /
+                        (config["english_target"] - config["spanish_typical"]) * 3)
+    else:
+        score = max(1, int(pvi / config["spanish_typical"] * 4))
+
+    score = min(10, max(1, score))
+
+    # Generate feedback
+    if pvi < config["spanish_typical"]:
+        feedback = f"Very syllable-timed (vocalic nPVI: {pvi:.0f}). Compress unstressed vowels more."
+    elif pvi < config["english_target"]:
+        feedback = f"Spanish rhythm pattern (vocalic nPVI: {pvi:.0f}). Target: {config['english_target']}+. Reduce unstressed vowels."
+    elif pvi < config["english_native"]:
+        feedback = f"Approaching English rhythm (vocalic nPVI: {pvi:.0f}). Keep practicing vowel contrast."
+    else:
+        feedback = f"Native-like rhythm (vocalic nPVI: {pvi:.0f}). Excellent stress-timing."
+
+    return RhythmAnalysis(
+        score=score,
+        pvi=round(pvi, 1),
+        is_syllable_timed=is_syllable_timed,
+        feedback=feedback,
+        pvi_type="vocalic",
+        pvi_vocalic=round(pvi, 1),
+        vowel_count=len(vowel_durations),
+    )
+
+
+def analyze_rhythm_with_alignment(
+    sound: parselmouth.Sound,
+    audio_path: Optional[Path] = None,
+    expected_text: Optional[str] = None,
+) -> RhythmAnalysis:
+    """
+    Analyze rhythm with optional forced alignment for vocalic nPVI.
+
+    This orchestrator:
+    1. Always calculates IOI-based nPVI as fallback
+    2. Attempts vocalic nPVI when expected_text is provided
+    3. Creates temporary file for alignment if no audio_path given
+    4. Falls back gracefully on alignment failure
+
+    Args:
+        sound: Parselmouth Sound object
+        audio_path: Path to audio file (optional - will create temp file if needed)
+        expected_text: Expected transcript (required for alignment)
+
+    Returns:
+        RhythmAnalysis with best available nPVI measurement
+    """
+    import tempfile
+
+    # Always calculate IOI-based nPVI first (as fallback)
+    ioi_result = analyze_rhythm_ioi(sound)
+
+    # Check if we should attempt vocalic nPVI
+    if not ALIGNMENT_CONFIG.get("enabled", True):
+        logger.debug("Alignment disabled in config, using IOI nPVI")
+        return ioi_result
+
+    if not expected_text:
+        logger.debug("No expected text provided, using IOI nPVI")
+        return ioi_result
+
+    # Check audio duration limit
+    max_duration = ALIGNMENT_CONFIG.get("max_audio_duration", 30)
+    if sound.get_total_duration() > max_duration:
+        logger.debug(f"Audio too long ({sound.get_total_duration():.1f}s > {max_duration}s), using IOI nPVI")
+        return ioi_result
+
+    # Check if aligner is available before creating temp file
+    try:
+        from aligner import forced_align, extract_vowel_durations, is_aligner_available
+
+        available, reason = is_aligner_available()
+        if not available:
+            logger.debug(f"Forced aligner unavailable: {reason}")
+            return ioi_result
+    except ImportError:
+        logger.debug("Aligner module not available, using IOI nPVI")
+        return ioi_result
+
+    # Determine audio path - use provided path or create temporary file
+    temp_file = None
+    alignment_path = audio_path
+
+    if not alignment_path:
+        try:
+            # Create temporary WAV file for alignment
+            temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            temp_file.close()
+            alignment_path = Path(temp_file.name)
+            sound.save(str(alignment_path), "WAV")
+            logger.debug(f"Created temp file for alignment: {alignment_path}")
+        except Exception as e:
+            logger.warning(f"Failed to create temp file for alignment: {e}")
+            return ioi_result
+
+    try:
+        # Perform alignment
+        alignment = forced_align(
+            alignment_path,
+            expected_text,
+            device=ALIGNMENT_CONFIG.get("device", "cpu"),
+        )
+
+        if not alignment.alignment_successful:
+            logger.warning(f"Forced alignment failed: {alignment.error_message}")
+            return ioi_result
+
+        # Extract vowel durations
+        vowel_durations = extract_vowel_durations(alignment)
+        min_vowels = ALIGNMENT_CONFIG.get("min_vowels_required", 3)
+
+        if len(vowel_durations) < min_vowels:
+            logger.debug(f"Too few vowels ({len(vowel_durations)} < {min_vowels}), using IOI nPVI")
+            return ioi_result
+
+        # Calculate vocalic nPVI
+        vocalic_result = analyze_rhythm_vocalic(vowel_durations, sound)
+
+        # Merge with IOI result - vocalic is primary, IOI is backup
+        return RhythmAnalysis(
+            score=vocalic_result.score,
+            pvi=vocalic_result.pvi,  # Primary is vocalic
+            is_syllable_timed=vocalic_result.is_syllable_timed,
+            feedback=vocalic_result.feedback,
+            pvi_type="vocalic",
+            pvi_ioi=ioi_result.pvi,  # Store IOI for reference
+            pvi_vocalic=vocalic_result.pvi,
+            vowel_count=len(vowel_durations),
+        )
+
+    except Exception as e:
+        logger.warning(f"Alignment error: {e}, using IOI nPVI")
+        return ioi_result
+    finally:
+        # Clean up temporary file
+        if temp_file:
+            try:
+                import os
+                os.unlink(temp_file.name)
+                logger.debug(f"Cleaned up temp file: {temp_file.name}")
+            except Exception:
+                pass  # Ignore cleanup errors
+
+
+def analyze_rhythm_ioi(sound: parselmouth.Sound) -> RhythmAnalysis:
+    """
+    Analyze speech rhythm using inter-onset intervals (IOI).
+
+    This is an approximation of nPVI using syllable nuclei timing rather than
+    true vocalic intervals. Use analyze_rhythm_with_alignment() for true
+    vocalic nPVI when transcripts are available.
 
     Reference values:
     - Syllable-timed languages (Spanish, French): nPVI ~40-50
     - Stress-timed languages (English, German): nPVI ~55-65
 
-    Formula: nPVI = 100 × [Σ |dₖ - dₖ₊₁| / ((dₖ + dₖ₊₁)/2)] / (m-1)
+    Args:
+        sound: Parselmouth Sound object
+
+    Returns:
+        RhythmAnalysis with IOI-based nPVI measurement
     """
     from scipy.signal import find_peaks
 
@@ -458,7 +693,9 @@ def analyze_rhythm(sound: parselmouth.Sound) -> RhythmAnalysis:
             score=5,
             pvi=0,
             is_syllable_timed=True,
-            feedback="Audio too short for rhythm analysis."
+            feedback="Audio too short for rhythm analysis.",
+            pvi_type="ioi",
+            pvi_ioi=0,
         )
 
     intensity_values = np.array(intensity_values)
@@ -481,7 +718,9 @@ def analyze_rhythm(sound: parselmouth.Sound) -> RhythmAnalysis:
             score=5,
             pvi=40,
             is_syllable_timed=True,
-            feedback="Not enough syllables detected for rhythm analysis."
+            feedback="Not enough syllables detected for rhythm analysis.",
+            pvi_type="ioi",
+            pvi_ioi=40,
         )
 
     # Calculate inter-syllable intervals
@@ -496,16 +735,13 @@ def analyze_rhythm(sound: parselmouth.Sound) -> RhythmAnalysis:
             score=5,
             pvi=40,
             is_syllable_timed=True,
-            feedback="Could not calculate rhythm. Try speaking longer."
+            feedback="Could not calculate rhythm. Try speaking longer.",
+            pvi_type="ioi",
+            pvi_ioi=40,
         )
 
-    # Calculate normalized Pairwise Variability Index (nPVI)
-    pvi_sum = 0
-    for i in range(len(intervals) - 1):
-        d1, d2 = intervals[i], intervals[i+1]
-        pvi_sum += abs(d1 - d2) / ((d1 + d2) / 2)
-
-    pvi = (pvi_sum / (len(intervals) - 1)) * 100 if len(intervals) > 1 else 0
+    # Calculate nPVI using shared function
+    pvi = calculate_npvi(intervals)
 
     # Determine if syllable-timed
     config = RHYTHM_CONFIG
@@ -527,20 +763,45 @@ def analyze_rhythm(sound: parselmouth.Sound) -> RhythmAnalysis:
 
     # Generate feedback
     if pvi < config["spanish_typical"]:
-        feedback = f"Very syllable-timed (PVI: {pvi:.0f}). Compress unstressed syllables more."
+        feedback = f"Very syllable-timed (nPVI: {pvi:.0f}). Compress unstressed syllables more."
     elif pvi < config["english_target"]:
-        feedback = f"Spanish rhythm pattern (PVI: {pvi:.0f}). Target: {config['english_target']}+. Reduce unstressed syllables."
+        feedback = f"Spanish rhythm pattern (nPVI: {pvi:.0f}). Target: {config['english_target']}+. Reduce unstressed syllables."
     elif pvi < config["english_native"]:
-        feedback = f"Approaching English rhythm (PVI: {pvi:.0f}). Keep practicing stress contrast."
+        feedback = f"Approaching English rhythm (nPVI: {pvi:.0f}). Keep practicing stress contrast."
     else:
-        feedback = f"Native-like rhythm (PVI: {pvi:.0f}). Excellent stress-timing."
+        feedback = f"Native-like rhythm (nPVI: {pvi:.0f}). Excellent stress-timing."
 
     return RhythmAnalysis(
         score=score,
         pvi=round(pvi, 1),
         is_syllable_timed=is_syllable_timed,
-        feedback=feedback
+        feedback=feedback,
+        pvi_type="ioi",
+        pvi_ioi=round(pvi, 1),
     )
+
+
+def analyze_rhythm(sound: parselmouth.Sound) -> RhythmAnalysis:
+    """
+    Analyze speech rhythm using normalized Pairwise Variability Index (nPVI).
+
+    Based on Grabe & Low (2002) methodology.
+    This is a legacy function that uses IOI-based nPVI approximation.
+
+    For true vocalic nPVI measurement, use analyze_rhythm_with_alignment()
+    when transcripts are available.
+
+    Reference values:
+    - Syllable-timed languages (Spanish, French): nPVI ~40-50
+    - Stress-timed languages (English, German): nPVI ~55-65
+
+    Args:
+        sound: Parselmouth Sound object
+
+    Returns:
+        RhythmAnalysis with IOI-based nPVI measurement
+    """
+    return analyze_rhythm_ioi(sound)
 
 
 def analyze_pauses(sound: parselmouth.Sound) -> PauseAnalysis:

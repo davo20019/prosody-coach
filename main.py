@@ -10,21 +10,19 @@ from typing import Optional
 from recorder import record_audio, save_recording, load_audio, get_duration, play_audio, play_tts
 from analyzer import analyze_prosody
 from feedback import display_analysis, display_quick_feedback
-from coach import analyze_with_coach, analyze_parallel, display_coaching
+from coach import analyze_parallel, display_coaching
 from prompts import (
     get_prompt_by_id,
     get_prompts_by_category,
     get_all_categories,
     get_random_prompt,
-    list_all_prompts,
     get_rhythm_drill,
-    get_rhythm_drills_by_level,
     get_random_rhythm_drill,
 )
 from storage import (
     save_session, get_history, get_stats, get_best_and_worst, get_session,
-    get_user_weaknesses, get_due_sounds, update_sound_after_practice, get_sound_stats,
-    get_due_words, update_word_after_practice, get_word_stats,
+    get_user_weaknesses, get_due_sounds, update_sound_after_practice,
+    get_due_words, update_word_after_practice,
     get_rhythm_progress, set_rhythm_baseline, update_rhythm_progress,
     save_rhythm_drill_attempt, get_due_rhythm_drills, get_available_levels,
 )
@@ -99,6 +97,7 @@ def analyze(
     and personalized coaching tips.
     """
     try:
+        filepath = file
         if file:
             # Analyze existing file
             console.print(f"\n[bold blue]Loading:[/bold blue] {file}")
@@ -148,7 +147,6 @@ def analyze(
         if coach:
             # PARALLEL MODE: Run prosody + Gemini simultaneously with streaming
             from rich.live import Live
-            from rich.spinner import Spinner
             from rich.text import Text
 
             # Track streaming progress
@@ -254,6 +252,7 @@ def analyze(
         save_session(
             analysis,
             mode="analyze",
+            recording_path=filepath,
             transcript=transcript,
             ai_summary=ai_summary,
             ai_tips=ai_tips,
@@ -484,13 +483,20 @@ def practice(
             console.print("[red]Recording too short. Please read the full text.[/red]")
             raise typer.Exit(1)
 
+        # Save recording (needed for vocalic nPVI alignment)
+        filepath = None
         if save:
             filepath = save_recording(audio_data, sample_rate)
             console.print(f"[dim]Saved to: {filepath}[/dim]\n")
 
-        # Analyze prosody
+        # Analyze prosody (pass text and path for vocalic nPVI when available)
         console.print("[dim]Analyzing prosody...[/dim]")
-        analysis = analyze_prosody(audio_data, sample_rate)
+        analysis = analyze_prosody(
+            audio_data,
+            sample_rate,
+            expected_text=prompt_data["text"],
+            audio_path=filepath,
+        )
         display_analysis(analysis)
 
         # Start AI request in background while playing back
@@ -557,6 +563,7 @@ def practice(
             analysis,
             mode="practice",
             prompt_id=prompt_data.get("id"),
+            recording_path=filepath,
             transcript=transcript,
             ai_summary=ai_summary,
             ai_tips=ai_tips,
@@ -674,13 +681,20 @@ def train(
             console.print("[red]Recording too short. Please read the full text.[/red]")
             continue
 
+        # Save recording (needed for vocalic nPVI alignment)
+        filepath = None
         if save:
             filepath = save_recording(audio_data, sample_rate)
             console.print(f"[dim]Saved to: {filepath}[/dim]\n")
 
-        # Analyze prosody
+        # Analyze prosody (pass text and path for vocalic nPVI when available)
         console.print("[dim]Analyzing prosody...[/dim]")
-        analysis = analyze_prosody(audio_data, sample_rate)
+        analysis = analyze_prosody(
+            audio_data,
+            sample_rate,
+            expected_text=prompt_data["text"],
+            audio_path=filepath,
+        )
         display_analysis(analysis)
 
         # AI coaching (parallel with playback)
@@ -741,6 +755,7 @@ def train(
             analysis,
             mode="practice",
             prompt_id=prompt_data.get("id"),
+            recording_path=filepath,
             transcript=transcript,
             ai_summary=ai_summary,
             ai_tips=ai_tips,
@@ -814,7 +829,6 @@ def rhythm(
         analyze_rhythm_with_coach,
         generate_targeted_drill,
         evaluate_mastery_with_ai,
-        MasteryEvaluationResult,
     )
     from config import RHYTHM_LEVEL_CONFIG
     from storage import (
@@ -892,8 +906,13 @@ def rhythm(
                 console.print("[red]Recording too short. Please read the full sentence.[/red]")
                 raise typer.Exit(1)
 
+            # Analyze prosody (text available but no saved file for alignment)
             console.print("[dim]Analyzing prosody...[/dim]")
-            analysis = analyze_prosody(audio_data, sample_rate)
+            analysis = analyze_prosody(
+                audio_data,
+                sample_rate,
+                expected_text=baseline_text,
+            )
 
             # Set baseline
             npvi = analysis.rhythm.pvi
@@ -1014,9 +1033,13 @@ def rhythm(
                 console.print("[red]Recording too short. Please try again.[/red]")
                 continue
 
-            # Analyze prosody
+            # Analyze prosody (text available but no saved file for alignment)
             console.print("[dim]Analyzing prosody...[/dim]")
-            analysis = analyze_prosody(audio_data, sample_rate)
+            analysis = analyze_prosody(
+                audio_data,
+                sample_rate,
+                expected_text=drill["text"],
+            )
 
             # Start AI rhythm coaching in background
             import threading
@@ -1085,26 +1108,53 @@ def rhythm(
                     # Only mark resolved if it was actually a tracked issue
                     mark_rhythm_issue_resolved(word=word.strip(",.!?"), level=practice_level)
 
-            # Display feedback
+            # Get current progress BEFORE updating (to show pre-attempt state)
+            current_progress = get_rhythm_progress()
+            levels_data = current_progress.get("levels", {})
+            level_progress_data = levels_data.get(practice_level, {})
+            consecutive_before = level_progress_data.get("consecutive_passes", 0)
+            required_passes = level_config.get("consecutive_passes", 3)
+
+            # If passed, the display should show the NEW progress (increment by 1)
+            consecutive_for_display = consecutive_before + 1 if passed else 0
+            progress_tuple = (consecutive_for_display, required_passes)
+
+            # Display feedback with new hierarchy: VERDICT → ACTION → DETAILS
+            show_details = False  # Will be toggled with 'd' key
+
             if rhythm_result:
-                display_rhythm_feedback(rhythm_result, analysis, practice_level, passed)
+                display_rhythm_feedback(
+                    rhythm_result, analysis, practice_level, passed,
+                    progress=progress_tuple, show_details=show_details
+                )
             else:
-                # Basic feedback without AI
+                # Basic feedback without AI (fallback)
                 console.print()
+                progress_visual = ""
+                for i in range(required_passes):
+                    if i < consecutive_for_display:
+                        progress_visual += "[green]✓[/green] "
+                    else:
+                        progress_visual += "[dim]○[/dim] "
+                progress_visual = progress_visual.strip()
+
                 if passed:
                     console.print(Panel(
-                        f"[bold green]✓ LEVEL {practice_level} PASS[/bold green]",
+                        f"[bold green]✓ PASS[/bold green]    {rhythm_score}/10    Progress: {progress_visual}\n"
+                        f"[dim]Level {practice_level}[/dim]",
                         border_style="green",
+                        padding=(0, 2),
                     ))
                 else:
                     console.print(Panel(
-                        f"[bold yellow]○ Keep practicing Level {practice_level}[/bold yellow]",
+                        f"[bold yellow]○ KEEP PRACTICING[/bold yellow]    {rhythm_score}/10    Progress: {progress_visual}\n"
+                        f"[dim]Level {practice_level}[/dim]",
                         border_style="yellow",
+                        padding=(0, 2),
                     ))
-                console.print(f"[bold]Rhythm Score:[/bold] {rhythm_score}/10")
-                console.print(f"[bold]nPVI:[/bold] {npvi:.0f} (target: {npvi_target}+)")
+                console.print(f"\n[dim]nPVI: {npvi:.0f} (target: {npvi_target}+)[/dim]")
 
-            # Update progress
+            # Update progress in database
             progress_update = update_rhythm_progress(
                 practice_level, npvi, ai_rhythm_score, passed
             )
@@ -1163,7 +1213,7 @@ def rhythm(
                             f"[dim]{mastery_result.reasoning}[/dim]",
                             border_style="yellow",
                         ))
-                except Exception as e:
+                except Exception:
                     # AI evaluation failed, fall back to standard progress
                     pass
 
@@ -1171,13 +1221,7 @@ def rhythm(
             if progress_update.get("next_level_unlocked"):
                 display_level_unlock(practice_level + 1)
 
-            # Show progress summary
-            console.print()
-            consecutive = progress_update.get("consecutive_passes", 0)
-            required = progress_update.get("required_passes", 3)
-            console.print(f"[dim]Progress: {consecutive}/{required} consecutive passes[/dim]")
-
-            # Next prompt
+            # Next prompt (progress now shown in feedback header)
             console.print()
             console.print("[dim]─" * 40 + "[/dim]")
 
@@ -1189,13 +1233,25 @@ def rhythm(
             except Exception:
                 pass  # Ignore if not a terminal
 
-            action = Prompt.ask("Press Enter for next drill, q to quit", default="", show_default=False)
+            action = Prompt.ask("[Enter] next  [d] details  [q] quit", default="", show_default=False)
 
             if action.lower() == "q":
                 # Show final progress
                 final_progress = get_rhythm_progress()
                 display_rhythm_progress(final_progress)
                 break
+
+            if action.lower() == "d":
+                # Re-display with full details
+                if rhythm_result:
+                    console.print()  # Clear some space
+                    display_rhythm_feedback(
+                        rhythm_result, analysis, practice_level, passed,
+                        progress=progress_tuple, show_details=True
+                    )
+                    # Wait for user to continue after viewing details
+                    Prompt.ask("[Enter] next  [q] quit", default="", show_default=False)
+                continue  # Don't get a new drill, let them see the current one
 
             # Get next drill with smart selection
             drill = None
@@ -1325,6 +1381,8 @@ def show(
     console.print(f"\n[bold]Mode:[/bold] {session['mode']}")
     console.print(f"[bold]Duration:[/bold] {session['duration']:.0f} seconds")
     console.print(f"[bold]Overall Score:[/bold] {session['overall_score']}/10")
+    if session.get("recording_path"):
+        console.print(f"[bold]Recording:[/bold] {session['recording_path']}")
 
     # Prosody feedback
     console.print("\n[bold cyan]Prosody Analysis:[/bold cyan]")
@@ -1392,7 +1450,7 @@ def progress():
         elif trend < 0:
             console.print(f"\n[red]Trend: {trend:.1f} (needs work)[/red]")
         else:
-            console.print(f"\n[yellow]Trend: Steady[/yellow]")
+            console.print("\n[yellow]Trend: Steady[/yellow]")
 
     # Best/worst components
     bw = get_best_and_worst()
@@ -1421,7 +1479,7 @@ def main(ctx: typer.Context):
 def show_interactive_menu():
     """Display interactive menu for selecting actions."""
     from rich.prompt import Prompt
-    from storage import get_user_weaknesses, get_due_sounds, get_sound_stats, get_due_words, get_word_stats
+    from storage import get_user_weaknesses
 
     menu_options = {
         "1": ("analyze", "Record and analyze your speech"),
@@ -1447,11 +1505,9 @@ def show_interactive_menu():
 
         # Check for due sounds (spaced repetition)
         due_sounds = get_due_sounds(limit=10)
-        sound_stats = get_sound_stats()
 
         # Check for due words (mispronounced words)
         due_words = get_due_words(limit=10)
-        word_stats = get_word_stats()
 
         if due_words:
             console.print()
@@ -1537,7 +1593,7 @@ def run_tailored_training(Prompt, weaknesses: dict):
     from coach import generate_tailored_prompt, analyze_with_coach_practice, display_coaching
     from analyzer import analyze_prosody
     from recorder import record_audio, play_audio, get_duration, save_recording, play_tts
-    from storage import save_session, get_due_sounds, update_sound_after_practice, get_due_words, update_word_after_practice
+    from storage import save_session
 
     if not weaknesses.get("sufficient_data"):
         console.print()
@@ -1643,13 +1699,20 @@ def run_tailored_training(Prompt, weaknesses: dict):
             console.print("[red]Recording too short. Please read the full text.[/red]")
             continue
 
+        # Save recording (needed for vocalic nPVI alignment)
+        filepath = None
         if save:
             filepath = save_recording(audio_data, sample_rate)
             console.print(f"[dim]Saved to: {filepath}[/dim]\n")
 
-        # Analyze prosody
+        # Analyze prosody (pass text and path for vocalic nPVI when available)
         console.print("[dim]Analyzing prosody...[/dim]")
-        analysis = analyze_prosody(audio_data, sample_rate)
+        analysis = analyze_prosody(
+            audio_data,
+            sample_rate,
+            expected_text=prompt_data["text"],
+            audio_path=filepath,
+        )
         display_analysis(analysis)
 
         # AI coaching (parallel with playback)
@@ -1710,6 +1773,7 @@ def run_tailored_training(Prompt, weaknesses: dict):
             analysis,
             mode="practice",
             prompt_id=prompt_data.get("id"),
+            recording_path=filepath,
             transcript=transcript,
             ai_summary=ai_summary,
             ai_tips=ai_tips,

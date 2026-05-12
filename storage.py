@@ -4,8 +4,108 @@ import sqlite3
 import json
 import re
 from datetime import datetime, date, timedelta
+from pathlib import Path
 from typing import Optional
 from config import DB_PATH, RHYTHM_LEVEL_CONFIG
+
+
+SESSION_COLUMN_DEFINITIONS = {
+    "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+    "created_at": "TEXT NOT NULL",
+    "duration": "REAL NOT NULL",
+    "pitch_score": "INTEGER NOT NULL",
+    "volume_score": "INTEGER NOT NULL",
+    "tempo_score": "INTEGER NOT NULL",
+    "rhythm_score": "INTEGER NOT NULL",
+    "pause_score": "INTEGER NOT NULL",
+    "overall_score": "REAL NOT NULL",
+    "mode": "TEXT NOT NULL DEFAULT 'analyze'",
+    "prompt_id": "TEXT",
+    "transcript": "TEXT",
+    "recording_path": "TEXT",
+    "pitch_feedback": "TEXT",
+    "volume_feedback": "TEXT",
+    "tempo_feedback": "TEXT",
+    "rhythm_feedback": "TEXT",
+    "pause_feedback": "TEXT",
+    "ai_summary": "TEXT",
+    "ai_tips": "TEXT",
+    "grammar_issues": "TEXT",
+    "suggested_revision": "TEXT",
+    "confidence_score": "INTEGER",
+    "confidence_feedback": "TEXT",
+    "filler_word_count": "INTEGER",
+    "filler_words_detail": "TEXT",
+    "pronunciation_issues": "TEXT",
+    "fluency_score": "INTEGER",
+    "fluency_feedback": "TEXT",
+}
+
+
+def _create_sessions_table(db: sqlite3.Connection, table_name: str = "sessions") -> None:
+    """Create a sessions table with the current schema."""
+    columns = ",\n                ".join(
+        f"{name} {definition}"
+        for name, definition in SESSION_COLUMN_DEFINITIONS.items()
+    )
+    db.execute(
+        f"""
+            CREATE TABLE IF NOT EXISTS {table_name} (
+                {columns}
+            )
+        """
+    )
+
+
+def _expected_sql_type(definition: str) -> str:
+    return definition.split()[0].upper()
+
+
+def _rebuild_sessions_table(db: sqlite3.Connection, existing_columns: set[str]) -> None:
+    """Rebuild sessions when an old migration created incorrect column types."""
+    temp_table = "sessions_new"
+    db.execute(f"DROP TABLE IF EXISTS {temp_table}")
+    _create_sessions_table(db, temp_table)
+
+    common_columns = [
+        name for name in SESSION_COLUMN_DEFINITIONS
+        if name in existing_columns
+    ]
+    if common_columns:
+        columns_sql = ", ".join(common_columns)
+        db.execute(
+            f"""
+            INSERT INTO {temp_table} ({columns_sql})
+            SELECT {columns_sql} FROM sessions
+            """
+        )
+
+    db.execute("DROP TABLE sessions")
+    db.execute(f"ALTER TABLE {temp_table} RENAME TO sessions")
+
+
+def _ensure_sessions_schema(db: sqlite3.Connection) -> None:
+    """Add missing columns and repair old migrations with incorrect affinities."""
+    rows = db.execute("PRAGMA table_info(sessions)").fetchall()
+    existing = {row["name"]: row for row in rows}
+
+    mismatched_types = []
+    for name, definition in SESSION_COLUMN_DEFINITIONS.items():
+        if name not in existing:
+            continue
+        actual_type = (existing[name]["type"] or "").upper()
+        expected_type = _expected_sql_type(definition)
+        if actual_type != expected_type:
+            mismatched_types.append(name)
+
+    if mismatched_types:
+        _rebuild_sessions_table(db, set(existing))
+        return
+
+    for name, definition in SESSION_COLUMN_DEFINITIONS.items():
+        if name in existing:
+            continue
+        db.execute(f"ALTER TABLE sessions ADD COLUMN {name} {definition}")
 
 
 def normalize_sound_name(sound: str) -> str:
@@ -38,58 +138,12 @@ def get_db() -> sqlite3.Connection:
 def init_db():
     """Initialize database schema."""
     with get_db() as db:
-        db.execute("""
-            CREATE TABLE IF NOT EXISTS sessions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                created_at TEXT NOT NULL,
-                duration REAL NOT NULL,
-                pitch_score INTEGER NOT NULL,
-                volume_score INTEGER NOT NULL,
-                tempo_score INTEGER NOT NULL,
-                rhythm_score INTEGER NOT NULL,
-                pause_score INTEGER NOT NULL,
-                overall_score REAL NOT NULL,
-                mode TEXT NOT NULL DEFAULT 'analyze',
-                prompt_id TEXT,
-                transcript TEXT,
-                pitch_feedback TEXT,
-                volume_feedback TEXT,
-                tempo_feedback TEXT,
-                rhythm_feedback TEXT,
-                pause_feedback TEXT,
-                ai_summary TEXT,
-                ai_tips TEXT,
-                grammar_issues TEXT,
-                suggested_revision TEXT,
-                confidence_score INTEGER,
-                confidence_feedback TEXT,
-                filler_word_count INTEGER,
-                filler_words_detail TEXT,
-                pronunciation_issues TEXT,
-                fluency_score INTEGER,
-                fluency_feedback TEXT
-            )
-        """)
+        _create_sessions_table(db)
+        _ensure_sessions_schema(db)
         db.execute("""
             CREATE INDEX IF NOT EXISTS idx_sessions_created_at
             ON sessions(created_at)
         """)
-
-        # Migrate existing databases - add new columns if missing
-        new_columns = [
-            "pitch_feedback", "volume_feedback", "tempo_feedback",
-            "rhythm_feedback", "pause_feedback",
-            "ai_summary", "ai_tips",
-            "grammar_issues", "suggested_revision",
-            "confidence_score", "confidence_feedback",
-            "filler_word_count", "filler_words_detail",
-            "pronunciation_issues", "fluency_score", "fluency_feedback"
-        ]
-        for col in new_columns:
-            try:
-                db.execute(f"ALTER TABLE sessions ADD COLUMN {col} TEXT")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
 
         # Sound tracking table for spaced repetition
         db.execute("""
@@ -236,6 +290,7 @@ def save_session(
     analysis,
     mode: str = "analyze",
     prompt_id: Optional[str] = None,
+    recording_path: Optional[str | Path] = None,
     transcript: Optional[str] = None,
     ai_summary: Optional[str] = None,
     ai_tips: Optional[list[str]] = None,
@@ -256,6 +311,7 @@ def save_session(
         analysis: ProsodyAnalysis object
         mode: 'analyze' or 'practice'
         prompt_id: ID of the practice prompt (if practice mode)
+        recording_path: Saved or source audio path for this session
         transcript: AI transcription (if available)
         ai_summary: AI overall feedback/summary
         ai_tips: List of AI coaching tips
@@ -285,7 +341,7 @@ def save_session(
             INSERT INTO sessions (
                 created_at, duration, pitch_score, volume_score,
                 tempo_score, rhythm_score, pause_score, overall_score,
-                mode, prompt_id, transcript,
+                mode, prompt_id, transcript, recording_path,
                 pitch_feedback, volume_feedback, tempo_feedback,
                 rhythm_feedback, pause_feedback,
                 ai_summary, ai_tips,
@@ -293,7 +349,7 @@ def save_session(
                 confidence_score, confidence_feedback,
                 filler_word_count, filler_words_detail,
                 pronunciation_issues, fluency_score, fluency_feedback
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 datetime.now().isoformat(),
@@ -307,6 +363,7 @@ def save_session(
                 mode,
                 prompt_id,
                 transcript,
+                str(recording_path) if recording_path else None,
                 analysis.pitch.feedback,
                 analysis.volume.feedback,
                 analysis.tempo.feedback,
@@ -1357,7 +1414,6 @@ def save_rhythm_drill_attempt(
     init_db()
 
     now = datetime.now().isoformat()
-    today = date.today().isoformat()
 
     with get_db() as db:
         # Check if drill exists
@@ -1741,8 +1797,6 @@ def get_level_mastery_data(level: int) -> dict:
         Dictionary with all relevant mastery data
     """
     init_db()
-
-    today = date.today().isoformat()
 
     with get_db() as db:
         # Get progress data

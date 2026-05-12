@@ -2,13 +2,12 @@
 """Test script to measure audio optimization improvements."""
 
 import time
-import sys
+import os
 from pathlib import Path
 
-import numpy as np
+import pytest
 
 from recorder import load_audio, trim_silence
-from config import SAMPLE_RATE
 
 
 def test_silence_trimming():
@@ -96,9 +95,12 @@ def test_file_size():
         Path(trimmed_path).unlink()
 
 
+@pytest.mark.skipif(
+    os.environ.get("RUN_API_BENCHMARKS") != "1",
+    reason="live Gemini benchmark; set RUN_API_BENCHMARKS=1 to run",
+)
 def test_api_speed():
     """Test API call speed with and without optimizations."""
-    import os
     if not os.environ.get("GEMINI_API_KEY"):
         print("\n" + "=" * 60)
         print("API SPEED TEST - SKIPPED (no GEMINI_API_KEY)")

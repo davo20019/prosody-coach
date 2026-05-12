@@ -5,8 +5,6 @@ import numpy as np
 import sounddevice as sd
 import soundfile as sf
 import threading
-import sys
-import io
 import tempfile
 from pathlib import Path
 from datetime import datetime

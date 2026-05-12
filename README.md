@@ -34,6 +34,7 @@ Prosody is the "music" of speech - the patterns of rhythm, stress, and intonatio
 - Python 3.10+
 - A microphone
 - (Optional) Google Gemini API key for AI coaching
+- (Optional) espeak-ng for accurate vocalic nPVI measurement via forced alignment
 
 ### Setup
 
@@ -44,6 +45,13 @@ cd prosody-coach
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Optional: Install espeak-ng for vocalic nPVI (more accurate rhythm measurement)
+# macOS
+brew install espeak-ng
+
+# Ubuntu/Debian
+sudo apt-get install espeak-ng
 ```
 
 ### Getting a Free Gemini API Key (Optional, for AI Coaching)
@@ -158,6 +166,26 @@ Focus on rhythm: Reduce unstressed syllables: 'comfortable' -> 'COMF-ter-ble'
 - **Tempo**: Syllable detection with validated WPM calculation
 - **Rhythm (nPVI)**: Normalized Pairwise Variability Index per [Grabe & Low (2002)](https://www.lfsag.unito.it/ritmo/pvi_en.html)
 - **Pauses**: Intensity-based silence detection (>200ms threshold)
+
+### nPVI Measurement Methods
+
+The rhythm component uses nPVI (normalized Pairwise Variability Index) to measure speech timing patterns:
+
+| Method | Description | Accuracy |
+|--------|-------------|----------|
+| **Vocalic nPVI** | True vowel durations via forced alignment | Most accurate (Grabe & Low standard) |
+| **IOI nPVI** | Inter-onset intervals from intensity peaks | Approximation (fallback) |
+
+**Vocalic nPVI** (when available):
+- Uses [Bournemouth Forced Aligner](https://pypi.org/project/bournemouth-forced-aligner/) + espeak-ng
+- Extracts phoneme-level timestamps from audio
+- Calculates true vowel duration variability
+- Requires: espeak-ng installed, expected text available, saved recording
+
+**IOI nPVI** (fallback):
+- Approximates syllable timing using intensity peaks
+- Always available, no external dependencies
+- Used when forced alignment unavailable or fails
 
 ## For Spanish Speakers
 

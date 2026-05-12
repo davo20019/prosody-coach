@@ -52,6 +52,14 @@ PAUSE_CONFIG = {
     "excellent_pause_rate": 5
 }
 
+# Forced alignment configuration for vocalic nPVI
+ALIGNMENT_CONFIG = {
+    "enabled": True,             # Set False to always use IOI-based nPVI
+    "device": "cpu",             # "cpu" or "cuda" for GPU acceleration
+    "max_audio_duration": 30,    # Seconds - skip alignment for longer audio
+    "min_vowels_required": 3,    # Minimum vowels needed for vocalic nPVI
+}
+
 # Paths
 DATA_DIR = Path(__file__).parent / "data"
 RECORDINGS_DIR = DATA_DIR / "recordings"

@@ -5,7 +5,6 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
 from rich.live import Live
-from rich.layout import Layout
 from rich import box
 from typing import Optional
 
@@ -30,6 +29,56 @@ def score_to_color(score: int) -> str:
         return "yellow"
     else:
         return "red"
+
+
+def build_word_stress_display(transcript: str, stress_pattern: str, linked: str = None) -> str:
+    """
+    Build a word-aligned stress visualization using a table for proper alignment.
+
+    Args:
+        transcript: The original sentence
+        stress_pattern: Pattern like "o O o O o o O"
+        linked: Connected speech like "I-WANNA-GO-tuhthuh-STORE"
+
+    Returns:
+        Formatted string showing words aligned with stress markers
+    """
+    if not transcript or not stress_pattern:
+        return ""
+
+    # Parse stress pattern
+    pattern_parts = stress_pattern.strip().split()
+    words = transcript.replace(",", "").replace(".", "").replace("?", "").replace("!", "").split()
+
+    # Build the display using simple fixed-width formatting
+    # Each word gets the same column width based on longest word
+    max_width = max(len(w) for w in words) if words else 4
+    col_width = max(max_width + 1, 5)  # At least 5 chars per column
+
+    word_cells = []
+    marker_cells = []
+
+    for i, word in enumerate(words):
+        if i < len(pattern_parts):
+            is_stressed = pattern_parts[i] == "O"
+        else:
+            is_stressed = False
+
+        # Create the word cell (padded to fixed width)
+        if is_stressed:
+            display_word = word.upper()
+            word_cells.append(f"[bold yellow]{display_word:<{col_width}}[/bold yellow]")
+            marker_cells.append(f"[bold cyan]{'↑':<{col_width}}[/bold cyan]")
+        else:
+            display_word = word.lower()
+            word_cells.append(f"[dim]{display_word:<{col_width}}[/dim]")
+            marker_cells.append(f"{'':<{col_width}}")
+
+    # Join with no extra spacing (width is built into each cell)
+    word_line = "".join(word_cells)
+    marker_line = "".join(marker_cells)
+
+    return word_line + "\n" + marker_line
 
 
 def display_analysis(analysis: ProsodyAnalysis) -> None:
@@ -92,10 +141,20 @@ def display_analysis(analysis: ProsodyAnalysis) -> None:
     rhythm = analysis.rhythm
     rhythm_color = score_to_color(rhythm.score)
     rhythm_type = "Syllable-timed" if rhythm.is_syllable_timed else "Stress-timed"
+
+    # Build nPVI details - show both when vocalic is available
+    pvi_details = f"nPVI: {rhythm.pvi:.0f}"
+    if rhythm.pvi_type == "vocalic" and rhythm.pvi_ioi is not None:
+        pvi_details = f"nPVI (vocalic): {rhythm.pvi:.0f}\nnPVI (onset): {rhythm.pvi_ioi:.0f}"
+        if rhythm.vowel_count:
+            pvi_details += f"\nVowels: {rhythm.vowel_count}"
+    elif rhythm.pvi_type == "ioi":
+        pvi_details = f"nPVI (onset): {rhythm.pvi:.0f}"
+
     table.add_row(
         "Rhythm",
         f"{score_to_bar(rhythm.score)}  [{rhythm_color}]{rhythm.score}/10[/{rhythm_color}]",
-        f"PVI: {rhythm.pvi:.0f}\nType: {rhythm_type}",
+        f"{pvi_details}\nType: {rhythm_type}",
         rhythm.feedback,
     )
 
@@ -235,7 +294,7 @@ def display_rhythm_progress(progress: dict) -> None:
         console.print()
         console.print(f"[bold]nPVI:[/bold] {npvi_current:.0f} [{change_color}]({change_str})[/{change_color}]")
         console.print(f"  [dim]35[/dim] [green]{'█' * filled}[/green][dim]{'░' * empty}[/dim] [dim]65[/dim]")
-        console.print(f"  [dim]Spanish-like → English-like[/dim]")
+        console.print("  [dim]Spanish-like → English-like[/dim]")
 
     elif npvi_current:
         console.print(f"\n[bold]Current nPVI:[/bold] {npvi_current:.0f}")
@@ -308,125 +367,249 @@ def display_level_unlock(level: int) -> None:
     console.print()
 
 
-def display_rhythm_feedback(result, prosody, level: int, passed: bool) -> None:
-    """Display rhythm-specific feedback from AI analysis."""
+def display_rhythm_feedback(result, prosody, level: int, passed: bool, progress: tuple = (0, 3), show_details: bool = False) -> None:
+    """
+    Display rhythm-specific feedback from AI analysis.
+
+    New hierarchy: VERDICT → ACTION → DETAILS
+    - Verdict: Pass/fail + score + progress in one glance
+    - Action: What to do differently (technique + how to say it)
+    - Details: Metrics (collapsed by default, 'd' to expand)
+
+    Args:
+        result: RhythmCoachingResult from AI
+        prosody: ProsodyAnalysis from audio
+        level: Current level (1-6)
+        passed: Whether the attempt passed
+        progress: Tuple of (current_consecutive, required) e.g. (1, 3)
+        show_details: Whether to show detailed metrics
+    """
+    from config import RHYTHM_LEVEL_CONFIG
+
+    config = RHYTHM_LEVEL_CONFIG.get(level, {})
+    level_name = config.get("name", f"Level {level}")
 
     console.print()
 
-    # Pass/Fail indicator
-    if passed:
-        console.print(Panel(
-            f"[bold green]✓ LEVEL {level} PASS[/bold green]",
-            border_style="green",
-        ))
-    else:
-        console.print(Panel(
-            f"[bold yellow]○ Keep practicing Level {level}[/bold yellow]",
-            border_style="yellow",
-        ))
+    # ==========================================================================
+    # SECTION 1: VERDICT - Pass/fail + score + progress in one header
+    # ==========================================================================
+    rhythm_color = score_to_color(result.rhythm_score)
+    current_passes, required_passes = progress
 
-    # Transcript
+    if passed:
+        status_icon = "[bold green]✓ PASS[/bold green]"
+        border_color = "green"
+    else:
+        status_icon = "[bold yellow]○ KEEP PRACTICING[/bold yellow]"
+        border_color = "yellow"
+
+    # Build progress indicator: ✓ ✓ ○ format
+    progress_visual = ""
+    for i in range(required_passes):
+        if i < current_passes:
+            progress_visual += "[green]✓[/green] "
+        else:
+            progress_visual += "[dim]○[/dim] "
+    progress_visual = progress_visual.strip()
+
+    # Compact header with all key info
+    header_content = (
+        f"{status_icon}    "
+        f"[{rhythm_color}][bold]{result.rhythm_score}/10[/bold][/{rhythm_color}]    "
+        f"Progress: {progress_visual}\n"
+        f"[dim]Level {level}: {level_name}[/dim]"
+    )
+
+    console.print(Panel(
+        header_content,
+        border_style=border_color,
+        padding=(0, 2),
+    ))
+
+    # Transcript - simple, no heavy panel
     if result.transcript:
         console.print()
+        console.print(f'  [italic]"{result.transcript}"[/italic]')
+
+    # ==========================================================================
+    # SECTION 2: WHAT'S HAPPENING - Feedback on stress and reduction
+    # ==========================================================================
+
+    # Show the key feedback about what the learner is doing right/wrong
+    # This is pedagogically important - don't hide it in details
+    feedback_content = ""
+
+    # Stress feedback (always relevant)
+    stress_icon = "[green]✓[/green]" if result.stress_correct else "[yellow]○[/yellow]"
+    if result.stress_feedback:
+        feedback_content += f"{stress_icon} [bold]Stress:[/bold] {result.stress_feedback}\n"
+
+    # Reduction feedback (level 2+)
+    if level >= 2 and result.reduction_feedback:
+        reduction_icon = "[green]✓[/green]" if result.function_reduction else "[yellow]○[/yellow]"
+        feedback_content += f"{reduction_icon} [bold]Reduction:[/bold] {result.reduction_feedback}\n"
+
+    if feedback_content.strip():
+        console.print()
         console.print(Panel(
-            f"[italic]{result.transcript}[/italic]",
-            title="[bold blue]What you said[/bold blue]",
+            feedback_content.strip(),
+            title="[bold blue]What You're Doing[/bold blue]",
             border_style="blue",
+            padding=(0, 2),
         ))
 
-    # Rhythm metrics
+    # ==========================================================================
+    # SECTION 3: HOW TO SAY IT - Stress pattern + connected speech
+    # ==========================================================================
     console.print()
-    table = Table(box=box.ROUNDED, show_header=True, title="[bold]Rhythm Analysis[/bold]", expand=True)
-    table.add_column("Metric", style="bold", width=18)
-    table.add_column("Value", justify="center", width=12)
-    table.add_column("Feedback")  # No fixed width - let it expand
 
-    # AI rhythm score
-    rhythm_color = score_to_color(result.rhythm_score)
-    table.add_row(
-        "AI Rhythm Score",
-        f"[{rhythm_color}]{result.rhythm_score}/10[/{rhythm_color}]",
-        result.timing_feedback,  # Full feedback
-    )
+    # Build the "How to say it" section with stress pattern and connected speech
+    action_content = ""
 
-    # Measured nPVI
-    npvi = prosody.rhythm.pvi
-    npvi_color = "green" if npvi >= 55 else "yellow" if npvi >= 45 else "red"
-    table.add_row(
-        "nPVI (measured)",
-        f"[{npvi_color}]{npvi:.0f}[/{npvi_color}]",
-        "[dim]Target: 55-65 (English-like)[/dim]",
-    )
+    # Word-aligned stress visualization (most important - shows which words to stress)
+    if result.transcript and result.stress_pattern:
+        stress_display = build_word_stress_display(result.transcript, result.stress_pattern)
+        if stress_display:
+            action_content += f"{stress_display}\n\n"
 
-    # AI nPVI estimate
-    if result.npvi_estimate:
-        est_color = "green" if result.npvi_estimate >= 55 else "yellow" if result.npvi_estimate >= 45 else "red"
-        table.add_row(
-            "nPVI (AI estimate)",
-            f"[{est_color}]{result.npvi_estimate:.0f}[/{est_color}]",
-            "[dim]Based on AI perception[/dim]",
-        )
+    # Connected speech - the "say it like this" model (shows HOW to pronounce)
+    if result.linked:
+        action_content += f"[bold yellow]Say it like:[/bold yellow]  [yellow]{result.linked}[/yellow]"
+        if result.linked_ipa:
+            action_content += f"\n[dim]{result.linked_ipa}[/dim]"
+        action_content += "\n\n"
 
-    # Stress correct
-    stress_check = "[green]✓[/green]" if result.stress_correct else "[red]✗[/red]"
-    table.add_row(
-        "Stress Patterns",
-        stress_check,
-        result.stress_feedback,  # Full feedback
-    )
+    # Technique tip - practical advice
+    if result.technique_tip:
+        tip_text = result.technique_tip
+        # Extract the HOW TO PRACTICE part if structured
+        if "HOW TO PRACTICE:" in tip_text.upper():
+            how_to_idx = tip_text.upper().find("HOW TO PRACTICE:")
+            how_to_text = tip_text[how_to_idx + len("HOW TO PRACTICE:"):].strip()
+            how_to_text = how_to_text.lstrip("[3. ").rstrip("]")
+            action_content += f"[bold white]Practice tip:[/bold white] {how_to_text}"
+        elif "3." in tip_text:
+            lines = tip_text.split("\n")
+            for line in lines:
+                if line.strip().startswith("[3.") or line.strip().startswith("3."):
+                    how_to_text = line.strip().lstrip("[3. ").rstrip("]")
+                    if ":" in how_to_text:
+                        how_to_text = how_to_text.split(":", 1)[1].strip()
+                    action_content += f"[bold white]Practice tip:[/bold white] {how_to_text}"
+                    break
+        else:
+            # Show the full technique tip if we can't parse it
+            action_content += f"[bold white]Practice tip:[/bold white] {tip_text}"
 
-    # Function reduction (for levels 2+)
-    if level >= 2:
-        reduction_check = "[green]✓[/green]" if result.function_reduction else "[yellow]○[/yellow]"
-        table.add_row(
-            "Function Reduction",
-            reduction_check,
-            result.reduction_feedback,  # Full feedback
-        )
+    if action_content.strip():
+        console.print(Panel(
+            action_content.strip(),
+            title="[bold cyan]How to Say It[/bold cyan]",
+            border_style="cyan",
+            padding=(1, 2),
+        ))
 
-    console.print(table)
+    # If no stress pattern was provided, show a note
+    if not result.stress_pattern and not result.linked:
+        console.print("[dim]Note: Focus on stressing content words (nouns, verbs, adjectives) and reducing function words (the, to, a).[/dim]")
 
-    # Word stress issues
+    # ==========================================================================
+    # SECTION 3: DETAILS - Metrics (shown if show_details=True or word issues)
+    # ==========================================================================
+
+    # Always show word stress issues if present (these are specific and actionable)
     if result.word_stress_issues:
         console.print()
-        console.print("[bold red]Word Stress Issues:[/bold red]")
+        console.print("[bold]Word issues:[/bold]")
         for issue in result.word_stress_issues:
-            console.print(f"  [red]•[/red] [bold]{issue.get('word', '')}[/bold]")
+            word = issue.get('word', '')
             expected = issue.get('expected', '')
             heard = issue.get('heard', '')
-            if expected and heard:
-                console.print(f"    Expected: {expected} → Heard: {heard}")
             tip = issue.get('tip', '')
+            if expected and heard:
+                console.print(f"  [red]•[/red] [bold]{word}[/bold]: {heard} → {expected}")
+            else:
+                console.print(f"  [red]•[/red] [bold]{word}[/bold]")
             if tip:
                 console.print(f"    [dim]{tip}[/dim]")
 
-    # Technique tip
-    if result.technique_tip:
+    if show_details:
+        # Full metrics table
         console.print()
-        console.print(Panel(
-            f"[yellow]{result.technique_tip}[/yellow]",
-            title="[bold yellow]Technique Tip[/bold yellow]",
-            border_style="yellow",
-        ))
+        table = Table(box=box.SIMPLE, show_header=True, padding=(0, 1))
+        table.add_column("Metric", style="bold", width=16)
+        table.add_column("Value", justify="center", width=8)
+        table.add_column("", width=50)
 
-    # Connected speech guidance (AI-generated)
-    if result.linked or result.stress_pattern:
+        # nPVI - show both vocalic and onset when available
+        rhythm = prosody.rhythm
+        npvi = rhythm.pvi
+        npvi_color = "green" if npvi >= 55 else "yellow" if npvi >= 45 else "red"
+
+        if rhythm.pvi_type == "vocalic" and rhythm.pvi_ioi is not None:
+            # Show both metrics
+            table.add_row(
+                "nPVI (vocalic)",
+                f"[{npvi_color}]{rhythm.pvi_vocalic:.0f}[/{npvi_color}]",
+                "[dim]True vowel-based measurement[/dim]",
+            )
+            ioi_color = "green" if rhythm.pvi_ioi >= 55 else "yellow" if rhythm.pvi_ioi >= 45 else "red"
+            table.add_row(
+                "nPVI (onset)",
+                f"[{ioi_color}]{rhythm.pvi_ioi:.0f}[/{ioi_color}]",
+                "[dim]Syllable onset approximation[/dim]",
+            )
+            if rhythm.vowel_count:
+                table.add_row(
+                    "Vowels",
+                    f"{rhythm.vowel_count}",
+                    "[dim]Detected vowels for vocalic nPVI[/dim]",
+                )
+        else:
+            # IOI only
+            table.add_row(
+                "nPVI (onset)",
+                f"[{npvi_color}]{npvi:.0f}[/{npvi_color}]",
+                "[dim]target: 55-65[/dim]",
+            )
+
+        # Stress patterns
+        stress_icon = "[green]✓[/green]" if result.stress_correct else "[red]✗[/red]"
+        stress_summary = "Correct placement" if result.stress_correct else "Needs work"
+        table.add_row("Stress", stress_icon, f"[dim]{stress_summary}[/dim]")
+
+        # Function reduction (levels 2+)
+        if level >= 2:
+            reduction_icon = "[green]✓[/green]" if result.function_reduction else "[yellow]○[/yellow]"
+            reduction_summary = "Good reduction" if result.function_reduction else "Reduce more"
+            table.add_row("Reduction", reduction_icon, f"[dim]{reduction_summary}[/dim]")
+
+        console.print(table)
+
+        # Full AI feedback (only in details mode)
+        if result.timing_feedback:
+            console.print()
+            console.print(f"[dim]{result.timing_feedback}[/dim]")
+    else:
+        # Compact metrics line
+        rhythm = prosody.rhythm
+        npvi = rhythm.pvi
+        npvi_color = "green" if npvi >= 55 else "yellow" if npvi >= 45 else "red"
+        stress_icon = "[green]✓[/green]" if result.stress_correct else "[red]✗[/red]"
+
+        # Indicate measurement type in compact view
+        npvi_label = "nPVI" if rhythm.pvi_type == "ioi" else "nPVI (vocalic)"
+        metrics_line = f"[dim]{npvi_label}: [{npvi_color}]{npvi:.0f}[/{npvi_color}]  •  Stress: {stress_icon}[/dim]"
+        if level >= 2:
+            reduction_icon = "[green]✓[/green]" if result.function_reduction else "[yellow]○[/yellow]"
+            metrics_line += f"[dim]  •  Reduction: {reduction_icon}[/dim]"
+
         console.print()
-        content = ""
-        if result.stress_pattern:
-            content += f"[bold white]Pattern:[/bold white] [white]{result.stress_pattern}[/white]  [dim](o = unstressed, O = STRESSED)[/dim]\n\n"
-        if result.linked:
-            content += f"[bold yellow]Say it like:[/bold yellow] [yellow]{result.linked}[/yellow]"
-            if result.linked_ipa:
-                content += f"\n[dim yellow]{result.linked_ipa}[/dim yellow]"
-        console.print(Panel(
-            content.strip(),
-            title="[bold cyan]Connected Speech[/bold cyan]",
-            border_style="cyan",
-        ))
+        console.print(metrics_line)
 
-    # Encouragement
-    if result.encouragement:
+    # Encouragement (brief, at the end)
+    if result.encouragement and not show_details:
         console.print()
         console.print(f"[green]{result.encouragement}[/green]")
 
@@ -440,37 +623,52 @@ def display_rhythm_drill_intro(drill: dict, level: int) -> None:
     config = RHYTHM_LEVEL_CONFIG.get(level, {})
     level_name = config.get("name", f"Level {level}")
 
-    # Build panel content with text and IPA
-    content = f"[bold white]{drill.get('text', '')}[/bold white]"
+    drill_text = drill.get('text', '')
+    pattern = drill.get("pattern", "")
+
+    # Build panel content
+    content_parts = []
+
+    # Main sentence with word-aligned stress visualization
+    if drill_text and pattern:
+        stress_display = build_word_stress_display(drill_text, pattern)
+        if stress_display:
+            content_parts.append(stress_display)
+        else:
+            content_parts.append(f"[bold white]{drill_text}[/bold white]")
+    else:
+        content_parts.append(f"[bold white]{drill_text}[/bold white]")
+
+    # IPA pronunciation
     if drill.get("ipa"):
-        content += f"\n[dim cyan]/{drill['ipa']}/[/dim cyan]"
+        content_parts.append(f"[dim]/{drill['ipa']}/[/dim]")
 
     console.print()
     console.print(Panel(
-        content,
+        "\n".join(content_parts),
         title=f"[bold green]Level {level}: {level_name}[/bold green]",
         subtitle=f"[dim]{drill.get('focus', '')}[/dim]",
         border_style="green",
         padding=(1, 2),
     ))
 
-    if drill.get("pattern"):
-        console.print(f"[dim]Pattern: {drill['pattern']}  (o = unstressed, O = STRESSED)[/dim]")
-
-    # Show technique with detailed explanation
+    # Show technique with detailed explanation (brief version)
     technique_text = drill.get("technique", "")
     if technique_text:
-        # If technique already has detailed explanation (long text with colon), show as-is
+        # Extract just the technique name and a brief explanation
         if len(technique_text) > 60 and ":" in technique_text:
-            # Split into name and explanation
             parts = technique_text.split(":", 1)
-            console.print(f"\n[bold cyan]Technique: {parts[0].strip()}[/bold cyan]")
-            if len(parts) > 1:
-                console.print(f"[cyan]{parts[1].strip()}[/cyan]")
+            technique_name = parts[0].strip()
+            technique_detail = parts[1].strip() if len(parts) > 1 else ""
+            # Truncate long explanations for the intro
+            if len(technique_detail) > 100:
+                technique_detail = technique_detail[:100] + "..."
+            console.print(f"[cyan]Technique:[/cyan] [dim]{technique_name}[/dim]")
+            if technique_detail:
+                console.print(f"[dim]{technique_detail}[/dim]")
         else:
-            # Short label - look up detailed explanation
-            console.print(f"\n[bold cyan]Technique: {technique_text}[/bold cyan]")
-            # Try exact match first, then partial match
+            console.print(f"[cyan]Technique:[/cyan] [dim]{technique_text}[/dim]")
+            # Look up detailed explanation
             explanation = TECHNIQUE_EXPLANATIONS.get(technique_text)
             if not explanation:
                 for key, value in TECHNIQUE_EXPLANATIONS.items():
@@ -478,7 +676,10 @@ def display_rhythm_drill_intro(drill: dict, level: int) -> None:
                         explanation = value
                         break
             if explanation:
-                console.print(f"[cyan]{explanation}[/cyan]")
+                # Truncate for intro view
+                if len(explanation) > 100:
+                    explanation = explanation[:100] + "..."
+                console.print(f"[dim]{explanation}[/dim]")
 
     console.print()
 

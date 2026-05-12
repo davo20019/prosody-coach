@@ -1,7 +1,6 @@
 """Real-time rhythm training module using Gemini Live API."""
 
 import asyncio
-import base64
 import os
 import sys
 import re
@@ -21,12 +20,11 @@ from config import (
     GEMINI_LIVE_MODEL,
     RHYTHM_LEVEL_CONFIG,
     REALTIME_FEEDBACK_DELAY,
-    REALTIME_SESSION_TIMEOUT,
     SAMPLE_RATE,
 )
 from recorder import AsyncAudioStreamer
 from feedback import LiveFeedbackDisplay
-from prompts import get_random_rhythm_drill, get_rhythm_drills_by_level
+from prompts import get_rhythm_drills_by_level
 from storage import (
     get_rhythm_progress,
     update_rhythm_progress,
@@ -138,6 +136,14 @@ Be supportive but accurate. Spanish speakers often use equal syllable timing - h
             ),
         )
 
+    @staticmethod
+    def _audio_blob_from_pcm(chunk: bytes) -> types.Blob:
+        """Create a Gemini audio blob from raw PCM bytes."""
+        return types.Blob(
+            data=chunk,
+            mime_type=f"audio/pcm;rate={SAMPLE_RATE}",
+        )
+
     async def _send_audio(self):
         """Stream audio to Gemini Live API."""
         try:
@@ -145,15 +151,10 @@ Be supportive but accurate. Spanish speakers often use equal syllable timing - h
                 if self._stop_requested or self.state == SessionState.STOPPED:
                     break
                 if self.session and chunk:
-                    # Base64 encode the audio data
-                    audio_b64 = base64.b64encode(chunk).decode("utf-8")
                     await self.session.send_realtime_input(
-                        audio=types.Blob(
-                            data=audio_b64,
-                            mime_type=f"audio/pcm;rate={SAMPLE_RATE}"
-                        )
+                        audio=self._audio_blob_from_pcm(chunk)
                     )
-        except Exception as e:
+        except Exception:
             if not self._stop_requested:
                 pass  # Silently handle audio streaming errors
 

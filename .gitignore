@@ -1,6 +1,9 @@
 # Audio recordings (personal data)
 data/recordings/*.wav
 data/recordings/*.mp3
+data/recordings/*.flac
+data/recordings/*.ogg
+data/recordings/*.m4a
 
 # Database
 data/*.db
