@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% set active = 'train' %}
+{% block title %}Train — Prosody Coach{% endblock %}
+{% block content %}
+  <h2>Tailored Training</h2>
+  <p class="muted">Picked based on your recent weaknesses.</p>
+  <form action="/train/analyze" method="post" enctype="multipart/form-data" data-recorder>
+    <p><strong>Prompt:</strong> {{ prompt.text }}</p>
+    {% if prompt.key_sounds %}<p class="muted">Key sounds: {{ prompt.key_sounds }}</p>{% endif %}
+    {% if prompt_source == 'fallback' %}<p class="muted">Tailored generation unavailable; showing a random prompt.</p>{% endif %}
+    <input type="hidden" name="prompt_id" value="{{ prompt.id }}">
+    <input type="hidden" name="expected_text" value="{{ prompt.text }}">
+    <input type="hidden" name="mode" value="train">
+    <p>
+      <button type="button" data-record>Record</button>
+      <span data-record-status class="muted"></span>
+    </p>
+  </form>
+  <div id="result-region">
+    <span class="htmx-indicator muted">Analyzing...</span>
+  </div>
+  <script src="/static/recorder.js" defer></script>
+{% endblock %}
