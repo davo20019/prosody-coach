@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Prosody Coach{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/vendor/htmx.min.js" defer></script>
+  <script src="/static/vendor/chart.umd.min.js" defer></script>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <h1>Prosody</h1>
+      <nav>
+        <a href="/practice" {% if active=='practice' %}class="active"{% endif %}>Practice</a>
+        <a href="/train" {% if active=='train' %}class="active"{% endif %}>Train</a>
+        <a href="/prompts" {% if active=='prompts' %}class="active"{% endif %}>Prompts</a>
+        <a href="/history" {% if active=='history' %}class="active"{% endif %}>History</a>
+        <a href="/history/stats" {% if active=='stats' %}class="active"{% endif %}>Stats</a>
+        <a href="/drills" {% if active=='drills' %}class="active"{% endif %}>Drills</a>
+        <a href="/sounds" {% if active=='sounds' %}class="active"{% endif %}>Sounds</a>
+        <a href="/words" {% if active=='words' %}class="active"{% endif %}>Words</a>
+        <a href="/settings" {% if active=='settings' %}class="active"{% endif %}>Settings</a>
+      </nav>
+    </aside>
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>
