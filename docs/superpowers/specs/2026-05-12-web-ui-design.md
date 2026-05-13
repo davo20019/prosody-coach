@@ -170,7 +170,7 @@ End-to-end lifecycle for the core record→analyze interaction.
 1. Receive `UploadFile` (webm) + form fields.
 2. Transcode to 16-bit mono 16 kHz WAV with `ffmpeg-python`. Save to `recordings/<uuid>.wav` (UUID name, not session id — see Storage section). Save is atomic: write to `<uuid>.wav.tmp`, then rename.
 3. Load the WAV into memory: `audio_data, sample_rate = soundfile.read(wav_path)`.
-4. Run `coach_pipeline.analyze_session(audio_data, sample_rate, expected_text=..., mode=..., provider=..., audio_path=wav_path)`. Inside, the prosody analysis and AI coach calls run **concurrently** via `asyncio.to_thread` (or `concurrent.futures` as the existing `analyze_parallel` already does).
+4. Run `coach_pipeline.analyze_session(audio_data, sample_rate, expected_text=..., mode=..., provider=..., audio_path=wav_path)`. Inside, prosody analysis runs first, then the AI coach call. The two cannot be concurrent because both `coach.analyze_with_coach` (Gemini) and `local_coach.analyze_with_local_coach` accept the analysis as input. Cost: ~0.5-1s of analyzer time before the long-running AI call begins.
 5. Persist with `save_session(...)`, passing the new `coach_provider`, `coach_status`, `coach_error` fields, and `recording_path=str(uuid_path)`. Returns the session id.
 6. Render `partials/analysis_card.html` with the result and return as `HTMLResponse`.
 
