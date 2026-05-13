@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% set active = 'words' %}
+{% block title %}Words — Prosody Coach{% endblock %}
+{% block content %}
+  <h2>Words</h2>
+  <div class="card">
+    <h3>Due for practice</h3>
+    <table>
+      <tr><th>Word</th><th>IPA</th><th>Related sound</th><th></th></tr>
+      {% for w in due %}
+        <tr>
+          <td>{{ w.word }}</td><td>{{ w.ipa }}</td><td>{{ w.related_sound }}</td>
+          <td>
+            <form hx-post="/words/{{ w.word }}/practice" hx-swap="outerHTML">
+              <input type="hidden" name="was_correct" value="true">
+              <button type="submit">Mark correct</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4" class="muted">Nothing due right now.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+{% endblock %}
