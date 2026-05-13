@@ -1973,5 +1973,37 @@ def run_rhythm_training(Prompt, rhythm_progress: dict):
     # "b" just returns to main menu
 
 
+@app.command()
+def serve(
+    port: int = typer.Option(7860, "--port", help="HTTP port."),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Skip auto-opening the browser."),
+    reload: bool = typer.Option(False, "--reload", help="Enable uvicorn autoreload (dev)."),
+):
+    """Start the web UI on http://127.0.0.1:<port>.
+
+    Bind address is hardcoded to 127.0.0.1 — Prosody Coach is a single-user
+    local tool. There is intentionally no --host flag; if you need to expose
+    it, edit this command and accept responsibility for the security model
+    (no auth, no CSRF, API keys readable from the page).
+    """
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    host = "127.0.0.1"
+    if not no_browser:
+        url = f"http://{host}:{port}"
+        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+
+    uvicorn.run(
+        "web.app:create_app",
+        host=host,
+        port=port,
+        factory=True,
+        reload=reload,
+    )
+
+
 if __name__ == "__main__":
     app()
