@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% set active = 'drills' %}
+{% block title %}Drill — Prosody Coach{% endblock %}
+{% block content %}
+  <h2>Drill — Level {{ drill.level }}</h2>
+  {% if drill.focus %}<p class="muted">Focus: {{ drill.focus }}</p>{% endif %}
+  <form action="/drills/attempt" method="post" enctype="multipart/form-data" data-recorder>
+    <p><strong>Read:</strong> {{ drill.text }}</p>
+    <input type="hidden" name="drill_id" value="{{ drill.id }}">
+    <input type="hidden" name="level" value="{{ drill.level }}">
+    <input type="hidden" name="expected_text" value="{{ drill.text }}">
+    <input type="hidden" name="drill_focus" value="{{ drill.focus or '' }}">
+    <input type="hidden" name="drill_technique" value="{{ drill.technique or '' }}">
+    <input type="hidden" name="mode" value="drill">
+    <p>
+      <button type="button" data-record>Record</button>
+      <span data-record-status class="muted"></span>
+    </p>
+  </form>
+  <div id="result-region">
+    <span class="htmx-indicator muted">Analyzing...</span>
+  </div>
+  <script src="/static/recorder.js" defer></script>
+{% endblock %}

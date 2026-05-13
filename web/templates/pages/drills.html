@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% set active = 'drills' %}
+{% block title %}Drills — Prosody Coach{% endblock %}
+{% block content %}
+  <h2>Rhythm Drills</h2>
+  <div class="card">
+    <h3>Status</h3>
+    <p>Baseline nPVI:
+      <strong>{{ '%.1f' % progress.npvi_baseline if progress.npvi_baseline else '— not set —' }}</strong>
+    </p>
+    <p>Current nPVI:
+      <strong>{{ '%.1f' % progress.npvi_current if progress.npvi_current else '— no data —' }}</strong>
+    </p>
+    <p>Current level: <strong>{{ progress.current_level }}</strong></p>
+    <form action="/drills/baseline" method="post" hx-post="/drills/baseline" hx-target="#baseline-result" hx-swap="innerHTML">
+      <label>Set baseline nPVI: <input type="number" name="npvi" step="0.1" required></label>
+      <button type="submit">Save</button>
+    </form>
+    <div id="baseline-result"></div>
+  </div>
+
+  <div class="card">
+    <h3>Due for practice</h3>
+    {% if due %}
+      <table>
+        <tr><th>Drill</th><th>Level</th><th>Last attempted</th><th></th></tr>
+        {% for d in due %}
+          <tr>
+            <td>{{ d.text or d.drill_id }}</td>
+            <td>{{ d.level }}</td>
+            <td>{{ d.last_attempted or '—' }}</td>
+            <td><a href="/drills/level/{{ d.level }}?drill_id={{ d.drill_id }}">practice this drill</a></td>
+          </tr>
+        {% endfor %}
+      </table>
+    {% else %}
+      <p class="muted">Nothing due right now.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Levels</h3>
+    <table>
+      <tr><th>Level</th><th>Consecutive passes</th><th>Total attempts</th><th>Unlocked</th><th></th></tr>
+      {% for level in levels %}
+        {% set lvl = progress.levels.get(level, {}) %}
+        <tr>
+          <td>Level {{ level }}</td>
+          <td>{{ lvl.get('consecutive_passes', 0) }}</td>
+          <td>{{ lvl.get('total_attempts', 0) }}</td>
+          <td>{{ lvl.get('unlocked_at') or '—' }}</td>
+          <td><a href="/drills/level/{{ level }}">practice</a></td>
+        </tr>
+      {% endfor %}
+    </table>
+  </div>
+{% endblock %}
