@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% set active = 'stats' %}
+{% block title %}Stats — Prosody Coach{% endblock %}
+{% block content %}
+  <h2>Stats (last 30 days)</h2>
+
+  {% if not has_data %}
+    <div class="card">
+      <p class="muted">No sessions yet. Record one in <a href="/practice">Practice</a> to start building stats.</p>
+    </div>
+  {% else %}
+    <div class="card">
+      <p>Total sessions: <strong>{{ stats.total_sessions }}</strong></p>
+      <p>Practice time: <strong>{{ stats.total_practice_time }} min</strong></p>
+      <p>Average overall: <strong class="score">{{ '%.2f' % averages.overall }}</strong></p>
+      {% if stats.recent_trend is not none %}
+        <p>Recent trend:
+          <strong class="score">
+            {% if stats.recent_trend > 0 %}+{% endif %}{{ '%.2f' % stats.recent_trend }}
+          </strong>
+          <span class="muted">vs. older sessions</span>
+        </p>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h3>Component averages</h3>
+      <canvas id="component-chart" height="120"></canvas>
+    </div>
+
+    <div class="card">
+      <h3>Strongest / weakest</h3>
+      <p>Strongest: <strong>{{ best_component }}</strong>
+         (<span class="score">{{ '%.1f' % best_score }}</span>)</p>
+      <p>Weakest: <strong>{{ worst_component }}</strong>
+         (<span class="score">{{ '%.1f' % worst_score }}</span>)</p>
+    </div>
+  {% endif %}
+
+  {% if has_data %}
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const ctx = document.getElementById("component-chart");
+      new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: {{ component_labels | tojson }},
+          datasets: [{ label: "Average score", data: {{ component_values | tojson }} }],
+        },
+        options: { scales: { y: { beginAtZero: true, max: 10 } } },
+      });
+    });
+  </script>
+  {% endif %}
+{% endblock %}

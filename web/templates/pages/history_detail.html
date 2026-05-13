@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% set active = 'history' %}
+{% block title %}Session #{{ session.id }} — Prosody Coach{% endblock %}
+{% block content %}
+  <h2>Session #{{ session.id }}</h2>
+  <p class="muted">{{ session.created_at }} · {{ session.mode }} · via {{ session.coach_provider or 'unknown' }}</p>
+  {% if session.coach_status == 'failed' %}
+    <div class="warning-banner">AI coaching failed: {{ session.coach_error }}</div>
+  {% endif %}
+
+  <table>
+    <tr><th>Component</th><th>Score</th></tr>
+    <tr><td>Pitch</td>  <td class="score">{{ session.pitch_score }}</td></tr>
+    <tr><td>Volume</td> <td class="score">{{ session.volume_score }}</td></tr>
+    <tr><td>Tempo</td>  <td class="score">{{ session.tempo_score }}</td></tr>
+    <tr><td>Rhythm</td> <td class="score">{{ session.rhythm_score }}</td></tr>
+    <tr><td>Pauses</td> <td class="score">{{ session.pause_score }}</td></tr>
+  </table>
+
+  {% if session.transcript %}<p><strong>Transcript:</strong> {{ session.transcript }}</p>{% endif %}
+  {% if session.ai_summary %}<p>{{ session.ai_summary }}</p>{% endif %}
+
+  {% if recording_name %}
+    <audio controls src="/audio/{{ recording_name }}"></audio>
+  {% endif %}
+{% endblock %}

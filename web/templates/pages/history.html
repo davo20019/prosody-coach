@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% set active = 'history' %}
+{% block title %}History — Prosody Coach{% endblock %}
+{% block content %}
+  <h2>History</h2>
+  <table>
+    <tr><th>When</th><th>Mode</th><th>Score</th><th>Coach</th><th></th></tr>
+    {% for s in sessions %}
+      <tr>
+        <td>{{ s.created_at }}</td>
+        <td>{{ s.mode }}</td>
+        <td class="score">{{ '%.1f' % s.overall_score }}</td>
+        <td>
+          <span class="muted">{{ s.coach_provider or '-' }}</span>
+          {% if s.coach_status == 'failed' %}<span class="error-banner">failed</span>{% endif %}
+        </td>
+        <td><a href="/history/{{ s.id }}">view</a></td>
+      </tr>
+    {% endfor %}
+  </table>
+{% endblock %}
