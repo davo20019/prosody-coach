@@ -2,14 +2,25 @@
 {% set active = 'prompts' %}
 {% block title %}Prompts — Prosody Coach{% endblock %}
 {% block content %}
-  <h2>Prompts</h2>
-  <p><a href="/prompts/random" class="btn">Pick a random prompt</a></p>
+  <header class="page-header">
+    <div>
+      <span class="eyebrow">Pick something to read</span>
+      <h2>Prompt library</h2>
+      <p class="subtitle">Browse by theme, or let the dice choose.</p>
+    </div>
+    <a href="/prompts/random" class="btn">🎲 Surprise me</a>
+  </header>
+
   {% for category in categories %}
-    <h3>{{ category }}</h3>
-    <ul>
-      {% for p in prompts_by_category.get(category, []) %}
-        <li><a href="/practice?prompt_id={{ p.id }}">{{ p.text }}</a></li>
-      {% endfor %}
-    </ul>
+    <div class="card">
+      <h3>{{ category }}</h3>
+      <ul style="list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.4rem 1.2rem;">
+        {% for p in prompts_by_category.get(category, []) %}
+          <li style="margin: 0; padding: 0.45rem 0; border-bottom: 1px dashed var(--line);">
+            <a href="/practice?prompt_id={{ p.id }}">{{ p.text }}</a>
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
   {% endfor %}
 {% endblock %}

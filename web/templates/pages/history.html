@@ -2,20 +2,46 @@
 {% set active = 'history' %}
 {% block title %}History — Prosody Coach{% endblock %}
 {% block content %}
-  <h2>History</h2>
-  <table>
-    <tr><th>When</th><th>Mode</th><th>Score</th><th>Coach</th><th></th></tr>
-    {% for s in sessions %}
-      <tr>
-        <td>{{ s.created_at }}</td>
-        <td>{{ s.mode }}</td>
-        <td class="score">{{ '%.1f' % s.overall_score }}</td>
-        <td>
-          <span class="muted">{{ s.coach_provider or '-' }}</span>
-          {% if s.coach_status == 'failed' %}<span class="error-banner">failed</span>{% endif %}
-        </td>
-        <td><a href="/history/{{ s.id }}">view</a></td>
-      </tr>
-    {% endfor %}
-  </table>
+  <header class="page-header">
+    <div>
+      <span class="eyebrow">Every session, kept</span>
+      <h2>History</h2>
+      <p class="subtitle">Click any row to see the full breakdown and re-listen.</p>
+    </div>
+    <a class="btn-secondary" href="/practice">+ New session</a>
+  </header>
+
+  {% if sessions %}
+    <div class="card" style="padding: 0;">
+      <table>
+        <thead>
+          <tr><th>When</th><th>Mode</th><th>Score</th><th>Coach</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for s in sessions %}
+            <tr>
+              <td>{{ s.created_at }}</td>
+              <td><span class="tag">{{ s.mode }}</span></td>
+              <td class="score"><strong>{{ '%.1f' % s.overall_score }}</strong> <span class="muted" style="font-size: 0.8em;">/ 10</span></td>
+              <td>
+                <span class="muted">{{ s.coach_provider or '—' }}</span>
+                {% if s.coach_status == 'failed' %}<span class="tag" style="background: var(--error-soft); color: var(--error); border-color: transparent;">failed</span>{% endif %}
+              </td>
+              <td><a href="/history/{{ s.id }}">View →</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="card empty-state">
+      <div class="mark">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+        </svg>
+      </div>
+      <h3>No sessions yet</h3>
+      <p>Once you record in <a href="/practice">Practice</a>, your sessions show up here.</p>
+    </div>
+  {% endif %}
 {% endblock %}

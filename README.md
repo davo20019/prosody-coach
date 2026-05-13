@@ -12,7 +12,7 @@ Prosody is the "music" of speech - the patterns of rhythm, stress, and intonatio
 
 - **5-Component Analysis**: Pitch, Volume, Tempo, Rhythm (nPVI), and Pauses
 - **Scientific Measurements**: Uses Praat algorithms via Parselmouth (gold standard in phonetics)
-- **AI Coaching**: Transcription, grammar correction, and personalized tips via Google Gemini
+- **AI Coaching**: Transcription, grammar correction, and personalized tips via Google Gemini or a fully local Whisper + Gemma stack
 - **Practice Mode**: Built-in exercises for each prosody component
 - **Playback**: Hear your recordings to self-assess
 - **Progress Tracking**: Save recordings and track improvement over time
@@ -61,7 +61,8 @@ To change provider or API keys, edit `.env` and restart the server. The Settings
 
 - Python 3.10+
 - A microphone
-- (Optional) Google Gemini API key for AI coaching
+- (Optional) Google Gemini API key for cloud AI coaching
+- (Optional) whisper.cpp and llama.cpp for fully local AI coaching
 - (Optional) espeak-ng for accurate vocalic nPVI measurement via forced alignment
 
 ### Setup
@@ -82,9 +83,9 @@ brew install espeak-ng
 sudo apt-get install espeak-ng
 ```
 
-### Getting a Free Gemini API Key (Optional, for AI Coaching)
+### Getting a Free Gemini API Key (Optional, for Cloud AI Coaching)
 
-The AI coaching feature requires a Google Gemini API key. You can get one for free:
+Cloud Gemini coaching requires a Google Gemini API key. You can get one for free:
 
 1. Go to [Google AI Studio](https://aistudio.google.com/apikey)
 2. Sign in with your Google account
@@ -96,7 +97,79 @@ The AI coaching feature requires a Google Gemini API key. You can get one for fr
 export GEMINI_API_KEY=your_api_key_here
 ```
 
-**Note:** The free tier includes generous limits for personal use. The AI coaching features (transcription, grammar correction, personalized tips) require this key. Basic prosody analysis works without it.
+**Note:** The free tier includes generous limits for personal use. Gemini coaching requires this key. Local coaching does not, but it requires the local runtimes and models below. Basic prosody analysis works without any AI provider.
+
+### Fully Local AI Coaching (Optional)
+
+Local mode keeps audio and coaching on your machine:
+
+1. `whisper.cpp` transcribes the recording.
+2. Prosody Coach computes local pitch, volume, tempo, rhythm, and pause metrics.
+3. `llama.cpp` serves Gemma through an OpenAI-compatible local HTTP API.
+4. Gemma receives only the transcript plus metrics and returns coaching text.
+
+Install the local runtimes:
+
+```bash
+brew install whisper-cpp llama.cpp
+```
+
+Download a Whisper model. `base.en` is fast; `small.en` or `medium.en` can be more accurate:
+
+```bash
+mkdir -p "$HOME/models/whisper"
+curl -L -o "$HOME/models/whisper/ggml-base.en.bin" \
+  "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
+```
+
+Start a Gemma server with llama.cpp. On a MacBook Pro M4 with 48 GB RAM, start with Gemma 4 E4B `Q4_K_M`; try a 26B Q4 model later if you want higher-quality coaching and can tolerate slower responses.
+
+```bash
+llama-server -hf ggml-org/gemma-4-E4B-it-GGUF:Q4_K_M \
+  --host 127.0.0.1 --port 8080 -ngl 99
+```
+
+(Recommended) Keep the Whisper model resident in RAM by running `whisper-server`. This avoids reloading the ~1.4 GB model on every transcription, making each run roughly 4-10x faster than the `whisper-cli` path:
+
+```bash
+whisper-server -m "$HOME/models/whisper/ggml-base.en.bin" \
+  --host 127.0.0.1 --port 9000 -t 8
+```
+
+Configure Prosody Coach:
+
+```bash
+export PROSODY_COACH_PROVIDER=local
+export WHISPER_CPP_BIN="$(which whisper-cli)"
+export WHISPER_MODEL="$HOME/models/whisper/ggml-base.en.bin"
+export LOCAL_LLM_BASE_URL="http://127.0.0.1:8080/v1"
+export LOCAL_LLM_MODEL="ggml-org/gemma-4-E4B-it-GGUF:Q4_K_M"
+# Optional: route transcription through the running whisper-server (faster).
+# Omit this to fall back to the whisper-cli subprocess on each call.
+export LOCAL_WHISPER_SERVER_URL="http://127.0.0.1:9000"
+```
+
+Check the setup:
+
+```bash
+python3 main.py local doctor
+```
+
+Use local coaching:
+
+```bash
+python3 main.py analyze --coach --provider local
+python3 main.py practice --provider local
+python3 main.py train --provider local
+```
+
+Gemini remains available:
+
+```bash
+python3 main.py analyze --coach --provider gemini
+```
+
+Local mode cannot directly listen to audio with Gemma. Whisper handles speech-to-text, and Gemma coaches from the transcript plus measured audio metrics.
 
 ## Usage
 
@@ -106,8 +179,11 @@ export GEMINI_API_KEY=your_api_key_here
 # Record and analyze your speech
 python3 main.py analyze
 
-# With AI coaching (requires Gemini API key)
+# With AI coaching (Gemini by default, or use --provider local)
 python3 main.py analyze --coach
+
+# With fully local AI coaching
+python3 main.py analyze --coach --provider local
 
 # With playback to hear yourself
 python3 main.py analyze --playback
@@ -186,6 +262,8 @@ Focus on rhythm: Reduce unstressed syllables: 'comfortable' -> 'COMF-ter-ble'
 - **Rich**: Beautiful terminal output
 - **Typer**: CLI framework
 - **Google GenAI**: Gemini API for AI coaching
+- **whisper.cpp**: Optional local transcription backend
+- **llama.cpp**: Optional local OpenAI-compatible Gemma server
 
 ### Measurement Standards
 

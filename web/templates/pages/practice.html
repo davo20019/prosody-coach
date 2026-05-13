@@ -2,50 +2,67 @@
 {% set active = 'practice' %}
 {% block title %}Practice — Prosody Coach{% endblock %}
 {% block content %}
-  <h2>Practice</h2>
+  <header class="page-header">
+    <div>
+      <span class="eyebrow">Today's session</span>
+      <h2>Practice</h2>
+      <p class="subtitle">Read aloud, then hear how your prosody compares to natural English speech.</p>
+    </div>
+  </header>
 
   {% if prompt_source == 'followup' %}
-    <p class="muted">Generated to target the weak spots from session #{{ followup_session_id }}.</p>
+    <div class="info-banner" style="margin-bottom: 1rem;">Tailored to the weak spots from session #{{ followup_session_id }}.</div>
   {% elif prompt_source == 'fallback' and followup_session_id %}
-    <p class="muted">Tailored generation unavailable; showing a random prompt.</p>
+    <div class="warning-banner" style="margin-bottom: 1rem;">Tailored generation unavailable — showing a random prompt instead.</div>
   {% endif %}
 
   <form action="/practice/analyze" method="post" enctype="multipart/form-data" data-recorder>
     {% if prompt %}
-      <p><strong>Prompt:</strong> {{ prompt.text }}</p>
-      <input type="hidden" name="prompt_id" value="{{ prompt.id or '' }}">
-      <input type="hidden" name="expected_text" value="{{ prompt.text }}">
+      <div class="card-hero">
+        <span class="label">Read this aloud</span>
+        <p class="prompt-text">{{ prompt.text }}</p>
+        <input type="hidden" name="prompt_id" value="{{ prompt.id or '' }}">
+        <input type="hidden" name="expected_text" value="{{ prompt.text }}">
+        {% for s in prompt.target_sounds or [] %}
+          <input type="hidden" name="target_sounds" value="{{ s.sound }}">
+        {% endfor %}
+        <div class="record-row">
+          <button type="button" data-record>Record</button>
+          <span data-record-status></span>
+        </div>
+      </div>
     {% else %}
-      <label>Custom text (optional):
-        <textarea name="custom_text" rows="3" cols="60" placeholder="Type a sentence to read"></textarea>
-      </label>
+      <div class="card">
+        <label for="custom_text" style="font-weight: 500; color: var(--ink-2);">Paste a sentence to read</label>
+        <textarea id="custom_text" name="custom_text" rows="3" placeholder="e.g. I think we should wait until tomorrow."></textarea>
+        <div class="record-row">
+          <button type="button" data-record>Record</button>
+          <span data-record-status></span>
+        </div>
+      </div>
     {% endif %}
     <input type="hidden" name="mode" value="{{ 'practice' if prompt else 'analyze' }}">
-    <p>
-      <button type="button" data-record>Record</button>
-      <span data-record-status class="muted"></span>
-    </p>
   </form>
 
   <div id="result-region">
-    <span class="htmx-indicator muted">Analyzing... this takes a few seconds.</span>
+    <span class="htmx-indicator">Analyzing — this takes a few seconds…</span>
   </div>
 
   <details class="card">
-    <summary>Tips for Spanish speakers (CLI: <code>prosody tips</code>)</summary>
-    <h4>Common patterns to avoid</h4>
+    <summary><strong>Tips for Spanish speakers</strong> <span class="muted">— common patterns to soften</span></summary>
+    <h4 style="margin-top: 1rem;">Patterns to watch for</h4>
     <ul>
-      <li><strong>Monotone speech.</strong> Spanish often uses flatter pitch in English. Exaggerate pitch changes at first — go higher on stressed words, lower at sentence ends.</li>
-      <li><strong>Equal syllable length.</strong> Spanish gives equal time to each syllable; English does not. Stretch stressed syllables, rush through unstressed ones. "COMfortable", not "com-for-ta-ble".</li>
-      <li><strong>Missing reductions.</strong> Unstressed vowels become "schwa" (uh): "to" → "tuh", "for" → "fer", "can" → "cun".</li>
+      <li><strong>Monotone speech.</strong> Spanish often uses flatter pitch in English. Exaggerate pitch at first — higher on stressed words, lower at sentence ends.</li>
+      <li><strong>Equal syllable length.</strong> Spanish gives equal time to each syllable; English does not. Stretch stressed syllables, rush through unstressed ones. <em>COMfortable</em>, not <em>com-for-ta-ble</em>.</li>
+      <li><strong>Missing reductions.</strong> Unstressed vowels become "schwa" (uh): <em>to</em> → <em>tuh</em>, <em>for</em> → <em>fer</em>, <em>can</em> → <em>cun</em>.</li>
       <li><strong>No strategic pauses.</strong> Pause briefly before important information.</li>
       <li><strong>Harsh intonation.</strong> Falling pitch throughout can sound angry. Rise slightly on positive statements.</li>
     </ul>
     <h4>Practice sentences</h4>
     <ul>
-      <li>"I THINK we should WAIT until TOMORROW." (stress caps; pause after "think")</li>
-      <li>"That's INteresting! Tell me MORE about it." (rise on "interesting", fall on "more")</li>
-      <li>"I NEver said she STOLE my MOney." (each word can be stressed for different meanings)</li>
+      <li>"I <strong>THINK</strong> we should <strong>WAIT</strong> until <strong>TOMORROW</strong>." <span class="muted">— pause after "think"</span></li>
+      <li>"That's <strong>INteresting</strong>! Tell me <strong>MORE</strong> about it."</li>
+      <li>"I <strong>NEver</strong> said she <strong>STOLE</strong> my <strong>MOney</strong>."</li>
     </ul>
   </details>
 

@@ -2,38 +2,73 @@
 {% set active = 'stats' %}
 {% block title %}Stats — Prosody Coach{% endblock %}
 {% block content %}
-  <h2>Stats (last 30 days)</h2>
+  <header class="page-header">
+    <div>
+      <span class="eyebrow">Last 30 days</span>
+      <h2>Your progress</h2>
+      <p class="subtitle">Quiet patterns in your speech, surfaced gently. Numbers go up when you practice — and that's enough.</p>
+    </div>
+  </header>
 
   {% if not has_data %}
-    <div class="card">
-      <p class="muted">No sessions yet. Record one in <a href="/practice">Practice</a> to start building stats.</p>
+    <div class="card empty-state">
+      <div class="mark">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 19h16M7 16v-4M12 16V8M17 16v-7"/>
+        </svg>
+      </div>
+      <h3>No sessions yet</h3>
+      <p>Record one in <a href="/practice">Practice</a> to start building your stats.</p>
     </div>
   {% else %}
-    <div class="card">
-      <p>Total sessions: <strong>{{ stats.total_sessions }}</strong></p>
-      <p>Practice time: <strong>{{ stats.total_practice_time }} min</strong></p>
-      <p>Average overall: <strong class="score">{{ '%.2f' % averages.overall }}</strong></p>
+    <div class="stat-grid">
+      <div class="stat-tile">
+        <div class="label">Sessions</div>
+        <div class="value">{{ stats.total_sessions }}</div>
+      </div>
+      <div class="stat-tile">
+        <div class="label">Practice time</div>
+        <div class="value">{{ stats.total_practice_time }}<span class="muted" style="font-size: 0.45em; margin-left: 0.2em;">min</span></div>
+      </div>
+      <div class="stat-tile">
+        <div class="label">Average overall</div>
+        <div class="value">{{ '%.1f' % averages.overall }}<span class="muted" style="font-size: 0.45em; margin-left: 0.2em;">/10</span></div>
+      </div>
       {% if stats.recent_trend is not none %}
-        <p>Recent trend:
-          <strong class="score">
+        <div class="stat-tile">
+          <div class="label">Recent trend</div>
+          <div class="value">
             {% if stats.recent_trend > 0 %}+{% endif %}{{ '%.2f' % stats.recent_trend }}
-          </strong>
-          <span class="muted">vs. older sessions</span>
-        </p>
+          </div>
+          <div class="trend {% if stats.recent_trend > 0 %}up{% elif stats.recent_trend < 0 %}down{% endif %}">
+            vs. older sessions
+          </div>
+        </div>
       {% endif %}
     </div>
 
     <div class="card">
-      <h3>Component averages</h3>
-      <canvas id="component-chart" height="120"></canvas>
+      <div class="section-heading">
+        <h3>Component averages</h3>
+        <span class="muted" style="font-size: 0.85rem;">average score per component (1–10)</span>
+      </div>
+      <canvas id="component-chart" height="140"></canvas>
     </div>
 
     <div class="card">
-      <h3>Strongest / weakest</h3>
-      <p>Strongest: <strong>{{ best_component }}</strong>
-         (<span class="score">{{ '%.1f' % best_score }}</span>)</p>
-      <p>Weakest: <strong>{{ worst_component }}</strong>
-         (<span class="score">{{ '%.1f' % worst_score }}</span>)</p>
+      <h3>Strongest & weakest</h3>
+      <div class="stat-grid" style="margin-top: 0.25rem;">
+        <div class="stat-tile" style="background: var(--sage-soft); border-color: transparent;">
+          <div class="label" style="color: var(--sage-deep);">Strongest</div>
+          <div class="value" style="color: var(--sage-deep);">{{ best_component }}</div>
+          <div class="trend up">{{ '%.1f' % best_score }} / 10</div>
+        </div>
+        <div class="stat-tile" style="background: var(--apricot-soft); border-color: transparent;">
+          <div class="label" style="color: var(--apricot-deep);">Needs warmth</div>
+          <div class="value" style="color: var(--apricot-deep);">{{ worst_component }}</div>
+          <div class="trend">{{ '%.1f' % worst_score }} / 10</div>
+        </div>
+      </div>
     </div>
   {% endif %}
 
@@ -41,13 +76,32 @@
   <script>
     document.addEventListener("DOMContentLoaded", () => {
       const ctx = document.getElementById("component-chart");
+      const css = getComputedStyle(document.documentElement);
+      const sage = css.getPropertyValue("--sage").trim();
+      const apricot = css.getPropertyValue("--apricot").trim();
+      const line = css.getPropertyValue("--line").trim();
       new Chart(ctx, {
         type: "bar",
         data: {
           labels: {{ component_labels | tojson }},
-          datasets: [{ label: "Average score", data: {{ component_values | tojson }} }],
+          datasets: [{
+            label: "Average score",
+            data: {{ component_values | tojson }},
+            backgroundColor: ({chart, dataIndex}) => {
+              const v = chart.data.datasets[0].data[dataIndex];
+              return v >= 7 ? sage : (v >= 4 ? apricot : "#B0463A");
+            },
+            borderRadius: 8,
+            borderSkipped: false,
+          }],
         },
-        options: { scales: { y: { beginAtZero: true, max: 10 } } },
+        options: {
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { beginAtZero: true, max: 10, grid: { color: line, drawTicks: false } },
+            x: { grid: { display: false } },
+          },
+        },
       });
     });
   </script>

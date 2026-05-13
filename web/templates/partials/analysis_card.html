@@ -1,30 +1,43 @@
+{% macro chip(label, item) -%}
+  {% set s = item.score %}
+  {% set band = 'high' if s >= 7 else ('mid' if s >= 4 else 'low') %}
+  <div class="score-chip" data-{{ band }}>
+    <div class="label">{{ label }}</div>
+    <div class="value">{{ s }}<span class="muted" style="font-size:0.45em; margin-left:0.2em;">/10</span></div>
+    <div class="meter"><span style="width: {{ (s|int) * 10 }}%;"></span></div>
+    <div class="feedback">{{ item.feedback }}</div>
+  </div>
+{%- endmacro %}
+
 <div class="card">
-  <h3>Results</h3>
+  <div class="section-heading">
+    <h3>Results</h3>
+    {% if passed is defined %}
+      <span class="tag {{ 'sage' if passed else 'apricot' }}">{{ pass_label }}</span>
+    {% endif %}
+  </div>
 
-  {% if passed is defined %}
-    <p class="{{ 'success-banner' if passed else 'warning-banner' }}">
-      {{ pass_label }}
-    </p>
-  {% endif %}
-
-  <table>
-    <tr><th>Component</th><th>Score</th><th>Feedback</th></tr>
-    <tr><td>Pitch</td>  <td class="score">{{ analysis.pitch.score }}</td>  <td>{{ analysis.pitch.feedback }}</td></tr>
-    <tr><td>Volume</td> <td class="score">{{ analysis.volume.score }}</td> <td>{{ analysis.volume.feedback }}</td></tr>
-    <tr><td>Tempo</td>  <td class="score">{{ analysis.tempo.score }}</td>  <td>{{ analysis.tempo.feedback }}</td></tr>
-    <tr><td>Rhythm</td> <td class="score">{{ analysis.rhythm.score }}</td> <td>{{ analysis.rhythm.feedback }}</td></tr>
-    <tr><td>Pauses</td> <td class="score">{{ analysis.pauses.score }}</td> <td>{{ analysis.pauses.feedback }}</td></tr>
-  </table>
+  <div class="score-row">
+    {{ chip('Pitch',  analysis.pitch) }}
+    {{ chip('Volume', analysis.volume) }}
+    {{ chip('Tempo',  analysis.tempo) }}
+    {{ chip('Rhythm', analysis.rhythm) }}
+    {{ chip('Pauses', analysis.pauses) }}
+  </div>
 
   {% if coach %}
-    <h4>AI Coach <span class="muted">(via {{ provider }})</span></h4>
-    {% if coach.transcript %}<p><strong>Transcript:</strong> {{ coach.transcript }}</p>{% endif %}
-    {% if coach.summary %}<p>{{ coach.summary }}</p>{% endif %}
-    {% if coach.tips %}
-      <ul>{% for tip in coach.tips %}<li>{{ tip }}</li>{% endfor %}</ul>
-    {% endif %}
+    <div class="coach">
+      <h4>AI coach <span class="muted" style="font-style: normal; font-weight: 400;">· {{ provider }}</span></h4>
+      {% if coach.transcript %}
+        <p class="transcript">&ldquo;{{ coach.transcript }}&rdquo;</p>
+      {% endif %}
+      {% if coach.summary %}<p>{{ coach.summary }}</p>{% endif %}
+      {% if coach.tips %}
+        <ul>{% for tip in coach.tips %}<li>{{ tip }}</li>{% endfor %}</ul>
+      {% endif %}
+    </div>
   {% else %}
-    <div class="warning-banner">AI coaching unavailable: {{ error or "unknown error" }}</div>
+    <div class="warning-banner" style="margin-top: 1rem;">AI coaching unavailable: {{ error or "unknown error" }}</div>
   {% endif %}
 
   {% if recording_name %}
@@ -32,7 +45,7 @@
   {% endif %}
 
   {% if session_id and coach %}
-    <p>
+    <p style="margin-top: 1rem;">
       <a href="/practice/followup/{{ session_id }}" class="btn">Try a sentence targeting this</a>
     </p>
   {% endif %}

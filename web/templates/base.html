@@ -3,26 +3,127 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#F6F1E7">
   <title>{% block title %}Prosody Coach{% endblock %}</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..700,30..100;1,9..144,300..700,30..100&family=Geist:wght@300..600&family=JetBrains+Mono:wght@400;500&display=swap">
+
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%235C8C7B'/%3E%3Cpath d='M10 32 q6 -16 12 0 t12 0 t12 0 t12 0' stroke='%23FFFDF8' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+
   <link rel="stylesheet" href="/static/app.css">
   <script src="/static/vendor/htmx.min.js" defer></script>
   <script src="/static/vendor/chart.umd.min.js" defer></script>
+  <script>
+    // Theme Chart.js to match the paper aesthetic.
+    document.addEventListener("DOMContentLoaded", () => {
+      if (!window.Chart) return;
+      const css = getComputedStyle(document.documentElement);
+      const ink   = css.getPropertyValue("--ink").trim()        || "#1F1B16";
+      const muted = css.getPropertyValue("--muted").trim()      || "#8A8175";
+      const line  = css.getPropertyValue("--line").trim()       || "#E6DDC9";
+      const sage  = css.getPropertyValue("--sage").trim()       || "#5C8C7B";
+      const apricot = css.getPropertyValue("--apricot").trim()  || "#E8A06A";
+      Chart.defaults.font.family = '"Geist", system-ui, sans-serif';
+      Chart.defaults.font.size = 12;
+      Chart.defaults.color = muted;
+      Chart.defaults.borderColor = line;
+      Chart.defaults.plugins.legend.labels.color = ink;
+      Chart.defaults.datasets.bar = Chart.defaults.datasets.bar || {};
+      Chart.defaults.datasets.bar.backgroundColor = sage;
+      Chart.defaults.datasets.bar.borderRadius = 8;
+      Chart.defaults.datasets.bar.borderSkipped = false;
+      Chart.defaults.datasets.line = Chart.defaults.datasets.line || {};
+      Chart.defaults.datasets.line.borderColor = sage;
+      Chart.defaults.datasets.line.backgroundColor = sage;
+      Chart.defaults.datasets.line.tension = 0.35;
+      Chart.defaults.datasets.line.pointRadius = 3;
+      Chart.defaults.datasets.line.pointBackgroundColor = apricot;
+      Chart.defaults.datasets.line.pointBorderColor = apricot;
+    });
+  </script>
 </head>
 <body>
   <div class="layout">
     <aside class="sidebar">
-      <h1>Prosody</h1>
-      <nav>
-        <a href="/practice" {% if active=='practice' %}class="active"{% endif %}>Practice</a>
-        <a href="/train" {% if active=='train' %}class="active"{% endif %}>Train</a>
-        <a href="/prompts" {% if active=='prompts' %}class="active"{% endif %}>Prompts</a>
-        <a href="/history" {% if active=='history' %}class="active"{% endif %}>History</a>
-        <a href="/history/stats" {% if active=='stats' %}class="active"{% endif %}>Stats</a>
-        <a href="/drills" {% if active=='drills' %}class="active"{% endif %}>Drills</a>
-        <a href="/sounds" {% if active=='sounds' %}class="active"{% endif %}>Sounds</a>
-        <a href="/words" {% if active=='words' %}class="active"{% endif %}>Words</a>
-        <a href="/settings" {% if active=='settings' %}class="active"{% endif %}>Settings</a>
-      </nav>
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 12 q3 -7 6 0 t6 0 t6 0 t4 0"/>
+          </svg>
+        </span>
+        <span class="brand-title">
+          <span class="name">Prosody</span>
+          <span class="tag">the music of speech</span>
+        </span>
+      </div>
+
+      <div>
+        <div class="nav-section-label">Speak</div>
+        <nav aria-label="Practice">
+          <a href="/practice" {% if active=='practice' %}class="active" aria-current="page"{% endif %}>
+            <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>
+            Practice
+          </a>
+          <a href="/train" {% if active=='train' %}class="active" aria-current="page"{% endif %}>
+            <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>
+            Train
+          </a>
+          <a href="/prompts" {% if active=='prompts' %}class="active" aria-current="page"{% endif %}>
+            <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H7l-3 3z"/></svg>
+            Prompts
+          </a>
+        </nav>
+      </div>
+
+      <div>
+        <div class="nav-section-label">Progress</div>
+        <nav aria-label="Progress">
+          <a href="/history" {% if active=='history' %}class="active" aria-current="page"{% endif %}>
+            <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            History
+          </a>
+          <a href="/history/stats" {% if active=='stats' %}class="active" aria-current="page"{% endif %}>
+            <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19h16"/><path d="M7 16v-4M12 16V8M17 16v-7"/></svg>
+            Stats
+          </a>
+        </nav>
+      </div>
+
+      <div>
+        <div class="nav-section-label">Drill down</div>
+        <nav aria-label="Drill down">
+          <a href="/drills" {% if active=='drills' %}class="active" aria-current="page"{% endif %}>
+            <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12 q3 -8 6 0 t6 0 t6 0"/></svg>
+            Rhythm drills
+          </a>
+          <a href="/sounds" {% if active=='sounds' %}class="active" aria-current="page"{% endif %}>
+            <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h2l3-7 4 14 3-9 2 4h2"/></svg>
+            Sounds
+          </a>
+          <a href="/words" {% if active=='words' %}class="active" aria-current="page"{% endif %}>
+            <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h14v14H5z"/><path d="M9 9h6M9 13h6M9 17h4"/></svg>
+            Words
+          </a>
+        </nav>
+      </div>
+
+      <div>
+        <div class="nav-section-label">System</div>
+        <nav aria-label="System">
+          <a href="/settings" {% if active=='settings' %}class="active" aria-current="page"{% endif %}>
+            <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+            Settings
+          </a>
+        </nav>
+      </div>
+
+      <div class="sidebar-footer">
+        <span>Open source · <a href="https://github.com/davo20019/prosody-coach" target="_blank" rel="noopener">GitHub</a></span>
+        <span>Local · 127.0.0.1</span>
+      </div>
     </aside>
     <main>
       {% block content %}{% endblock %}

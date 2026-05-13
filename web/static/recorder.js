@@ -44,9 +44,24 @@
     let stream = null;
     let startedAt = 0;
 
+    let tickTimer = null;
+    function fmt(ms) {
+      const s = Math.floor(ms / 1000);
+      return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+    }
     function setStatus(text, isRecording) {
       if (status) status.textContent = text;
       button.textContent = isRecording ? "Stop" : "Record";
+      if (isRecording) {
+        button.dataset.recording = "true";
+        if (tickTimer) clearInterval(tickTimer);
+        tickTimer = setInterval(() => {
+          if (status) status.textContent = `Recording · ${fmt(Date.now() - startedAt)}`;
+        }, 250);
+      } else {
+        delete button.dataset.recording;
+        if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
+      }
     }
 
     async function uploadBlob(blob) {

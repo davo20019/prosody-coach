@@ -2,32 +2,59 @@
 {% set active = 'words' %}
 {% block title %}Words — Prosody Coach{% endblock %}
 {% block content %}
-  <h2>Words</h2>
+  <header class="page-header">
+    <div>
+      <span class="eyebrow">Spaced repetition</span>
+      <h2>Words</h2>
+      <p class="subtitle">Words you've stumbled on, queued for review when their forgetting curve dips.</p>
+    </div>
+  </header>
+
   <div class="card">
-    <h3>Due for practice</h3>
-    <table>
-      <tr><th>Word</th><th>IPA</th><th>Related sound</th><th></th></tr>
-      {% for w in due %}
-        <tr>
-          <td>{{ w.word }}</td><td>{{ w.ipa }}</td><td>{{ w.related_sound }}</td>
-          <td>
-            <form hx-post="/words/{{ w.word }}/practice" hx-swap="outerHTML">
+    <div class="section-heading">
+      <h3>Due for practice</h3>
+      {% if due %}<a class="btn" href="/train">Practice due words →</a>{% endif %}
+    </div>
+    {% if due %}
+      <table>
+        <thead><tr><th>Word</th><th>IPA</th><th>Related sound</th></tr></thead>
+        <tbody>
+          {% for w in due %}
+            <tr>
+              <td><strong>{{ w.word }}</strong></td>
+              <td><span class="ipa">{{ w.ipa }}</span></td>
+              <td>{{ w.related_sound }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <details class="manual-overrides">
+        <summary>Manual overrides</summary>
+        <div class="override-list">
+          {% for w in due %}
+            <form class="inline-form" hx-post="/words/{{ w.word }}/practice" hx-swap="outerHTML">
+              <span><strong>{{ w.word }}</strong></span>
               <input type="hidden" name="was_correct" value="true">
-              <button type="submit">Mark correct</button>
+              <button class="btn-secondary" type="submit">Mark as reviewed</button>
             </form>
-          </td>
-        </tr>
-      {% else %}
-        <tr><td colspan="4" class="muted">Nothing due right now.</td></tr>
-      {% endfor %}
-    </table>
+          {% endfor %}
+        </div>
+      </details>
+    {% else %}
+      <p class="muted">Nothing due right now.</p>
+    {% endif %}
   </div>
 
   <div class="card">
     <h3>All tracked words</h3>
     {% if tracked %}
-      <ul>
-        {% for w in tracked %}<li>{{ w.word }}{% if w.ipa %} ({{ w.ipa }}){% endif %} — mispronounced {{ w.times_mispronounced }}×</li>{% endfor %}
+      <ul style="columns: 2; column-gap: 2rem; list-style: none; padding: 0;">
+        {% for w in tracked %}
+          <li style="margin: 0.3rem 0; break-inside: avoid;">
+            <strong>{{ w.word }}</strong>{% if w.ipa %} <span class="ipa">{{ w.ipa }}</span>{% endif %}
+            <span class="muted"> — {{ w.times_mispronounced }}×</span>
+          </li>
+        {% endfor %}
       </ul>
     {% else %}
       <p class="muted">No words tracked yet.</p>

@@ -30,4 +30,4 @@ def sounds_index(request: Request) -> HTMLResponse:
 def practice_sound(sound: str, was_correct: str = Form("true")) -> HTMLResponse:
     update_sound_after_practice(sound, was_correct.lower() == "true")
     # `sound` is a URL path param — escape before echoing into HTML.
-    return HTMLResponse(f"<span class='muted'>Recorded: {html.escape(sound)}</span>")
+    return HTMLResponse(f"<span class='muted'>Reviewed: {html.escape(sound)}</span>")

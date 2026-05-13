@@ -100,6 +100,37 @@ def test_analyze_returns_rendered_card(client, tmp_path, monkeypatch):
     assert saved[0]["coach_status"] == "ok"
 
 
+def test_analyze_advances_due_word_when_practiced_correctly(client, tmp_path, monkeypatch):
+    monkeypatch.setattr("web.routes.practice.RECORDINGS_DIR", tmp_path)
+    monkeypatch.setattr(
+        "web.routes.practice.transcode_to_wav",
+        lambda src, dst: (sf.write(dst, np.zeros(16000, dtype=np.int16), 16000, subtype="PCM_16") or dst),
+    )
+    monkeypatch.setattr(
+        "web.routes.practice.analyze_session",
+        lambda *a, **k: _fake_pipeline_result(),
+    )
+    monkeypatch.setattr("web.routes.practice.save_session", lambda *a, **k: 42)
+    monkeypatch.setattr(
+        "web.routes.practice.get_due_words",
+        lambda limit=100: [{"word": "thought", "ipa": "θɔːt", "related_sound": "th"}],
+    )
+    updates = []
+    monkeypatch.setattr(
+        "web.routes.practice.update_word_after_practice",
+        lambda word, was_correct: updates.append((word, was_correct)),
+    )
+
+    response = client.post(
+        "/practice/analyze",
+        data={"mode": "practice", "expected_text": "I thought about it."},
+        files={"audio": ("rec.webm", io.BytesIO(b"\x1a\x45\xdf\xa3"), "audio/webm")},
+    )
+
+    assert response.status_code == 200
+    assert updates == [("thought", True)]
+
+
 def test_analyze_renders_partial_when_coach_fails(client, tmp_path, monkeypatch):
     monkeypatch.setattr("web.routes.practice.RECORDINGS_DIR", tmp_path)
     monkeypatch.setattr(
@@ -123,6 +154,40 @@ def test_analyze_renders_partial_when_coach_fails(client, tmp_path, monkeypatch)
     assert response.status_code == 200
     assert "AI coaching unavailable" in response.text
     assert "API down" in response.text
+
+
+def test_analyze_does_not_advance_due_words_when_coach_fails(client, tmp_path, monkeypatch):
+    monkeypatch.setattr("web.routes.practice.RECORDINGS_DIR", tmp_path)
+    monkeypatch.setattr(
+        "web.routes.practice.transcode_to_wav",
+        lambda src, dst: (sf.write(dst, np.zeros(16000, dtype=np.int16), 16000, subtype="PCM_16") or dst),
+    )
+    from coach_pipeline import SessionResult
+    failed = SessionResult(
+        analysis=_fake_pipeline_result().analysis,
+        coach=None, provider="gemini",
+        status="failed", error="API down",
+    )
+    monkeypatch.setattr("web.routes.practice.analyze_session", lambda *a, **k: failed)
+    monkeypatch.setattr("web.routes.practice.save_session", lambda *a, **k: 7)
+    monkeypatch.setattr(
+        "web.routes.practice.get_due_words",
+        lambda limit=100: [{"word": "thought", "ipa": "θɔːt", "related_sound": "th"}],
+    )
+    updates = []
+    monkeypatch.setattr(
+        "web.routes.practice.update_word_after_practice",
+        lambda word, was_correct: updates.append((word, was_correct)),
+    )
+
+    response = client.post(
+        "/practice/analyze",
+        data={"mode": "practice", "expected_text": "I thought about it."},
+        files={"audio": ("rec.webm", io.BytesIO(b"\x1a\x45\xdf\xa3"), "audio/webm")},
+    )
+
+    assert response.status_code == 200
+    assert updates == []
 
 
 def test_analyze_returns_error_banner_on_transcode_failure(client, tmp_path, monkeypatch):

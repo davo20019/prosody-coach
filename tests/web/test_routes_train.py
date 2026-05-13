@@ -16,13 +16,19 @@ def test_train_page_uses_tailored_prompt_generator(client, monkeypatch):
         captured["weak"] = weaknesses
         captured["sounds"] = due_sounds
         captured["words"] = due_words
-        return {"id": "tailored-1", "text": "Tailored sentence to read", "key_sounds": "th"}
+        return {
+            "id": "tailored-1",
+            "text": "Tailored sentence to read",
+            "key_sounds": "th",
+            "target_sounds": [{"sound": "th", "ipa": "θ"}],
+        }
     monkeypatch.setattr("web.routes.train.generate_tailored_prompt", fake_gen)
 
     response = client.get("/train")
     assert response.status_code == 200
     assert "Tailored sentence to read" in response.text
     assert "/train/analyze" in response.text
+    assert 'name="target_sounds" value="th"' in response.text
     assert captured["weak"] == {"weakest_components": ["pitch"]}
     assert captured["sounds"] == [{"sound": "th"}]
     assert captured["words"] == [{"word": "thought"}]
@@ -125,3 +131,107 @@ def test_train_post_uses_practice_pipeline_and_persists_full_coach(client, tmp_p
     assert kw["fluency_feedback"] == "smooth"
     assert kw["coach_provider"] == "gemini"
     assert kw["coach_status"] == "ok"
+
+
+def test_train_post_advances_due_word_when_practiced_correctly(client, tmp_path, monkeypatch):
+    import io
+    import numpy as np
+    import soundfile as sf
+    from coach_pipeline import SessionResult
+    from types import SimpleNamespace
+
+    monkeypatch.setattr("web.routes.train.RECORDINGS_DIR", tmp_path)
+    monkeypatch.setattr(
+        "web.routes.train.transcode_to_wav",
+        lambda src, dst: (sf.write(dst, np.zeros(16000, dtype=np.int16), 16000, subtype="PCM_16") or dst),
+    )
+
+    analysis = SimpleNamespace(
+        pitch=SimpleNamespace(score=8, feedback="p"),
+        volume=SimpleNamespace(score=8, feedback="v"),
+        tempo=SimpleNamespace(score=8, estimated_wpm=140, feedback="t"),
+        rhythm=SimpleNamespace(score=8, pvi=55, feedback="r"),
+        pauses=SimpleNamespace(score=8, feedback="pa"),
+        to_dict=lambda: {"duration": 5.0, "pitch_score": 8, "volume_score": 8,
+                          "tempo_score": 8, "rhythm_score": 8, "pause_score": 8,
+                          "overall_score": 8.0},
+    )
+    monkeypatch.setattr(
+        "web.routes.train.analyze_session",
+        lambda *a, **k: SessionResult(
+            analysis=analysis,
+            coach={"transcript": "I thought about it", "pronunciation_issues": []},
+            provider="gemini",
+            status="ok",
+            error=None,
+        ),
+    )
+    monkeypatch.setattr("web.routes.train.save_session", lambda *a, **k: 1)
+    monkeypatch.setattr(
+        "web.routes.train.get_due_words",
+        lambda limit=100: [{"word": "thought", "ipa": "θɔːt", "related_sound": "th"}],
+    )
+    updates = []
+    monkeypatch.setattr(
+        "web.routes.train.update_word_after_practice",
+        lambda word, was_correct: updates.append((word, was_correct)),
+    )
+
+    response = client.post(
+        "/train/analyze",
+        data={"mode": "train", "expected_text": "I thought about it."},
+        files={"audio": ("rec.webm", io.BytesIO(b"\x1a\x45\xdf\xa3"), "audio/webm")},
+    )
+
+    assert response.status_code == 200
+    assert updates == [("thought", True)]
+
+
+def test_train_post_advances_target_sound_when_practiced_correctly(client, tmp_path, monkeypatch):
+    import io
+    import numpy as np
+    import soundfile as sf
+    from coach_pipeline import SessionResult
+    from types import SimpleNamespace
+
+    monkeypatch.setattr("web.routes.train.RECORDINGS_DIR", tmp_path)
+    monkeypatch.setattr(
+        "web.routes.train.transcode_to_wav",
+        lambda src, dst: (sf.write(dst, np.zeros(16000, dtype=np.int16), 16000, subtype="PCM_16") or dst),
+    )
+
+    analysis = SimpleNamespace(
+        pitch=SimpleNamespace(score=8, feedback="p"),
+        volume=SimpleNamespace(score=8, feedback="v"),
+        tempo=SimpleNamespace(score=8, estimated_wpm=140, feedback="t"),
+        rhythm=SimpleNamespace(score=8, pvi=55, feedback="r"),
+        pauses=SimpleNamespace(score=8, feedback="pa"),
+        to_dict=lambda: {"duration": 5.0, "pitch_score": 8, "volume_score": 8,
+                          "tempo_score": 8, "rhythm_score": 8, "pause_score": 8,
+                          "overall_score": 8.0},
+    )
+    monkeypatch.setattr(
+        "web.routes.train.analyze_session",
+        lambda *a, **k: SessionResult(
+            analysis=analysis,
+            coach={"transcript": "I thought about it", "pronunciation_issues": []},
+            provider="gemini",
+            status="ok",
+            error=None,
+        ),
+    )
+    monkeypatch.setattr("web.routes.train.save_session", lambda *a, **k: 1)
+    updates = []
+    monkeypatch.setattr(
+        "web.routes.train.update_sound_after_practice",
+        lambda sound, was_correct: updates.append((sound, was_correct)),
+    )
+
+    response = client.post(
+        "/train/analyze",
+        data={"mode": "train", "expected_text": "I thought about it.", "target_sounds": ["th"]},
+        files={"audio": ("rec.webm", io.BytesIO(b"\x1a\x45\xdf\xa3"), "audio/webm")},
+    )
+
+    assert response.status_code == 200
+    assert updates == [("th", True)]

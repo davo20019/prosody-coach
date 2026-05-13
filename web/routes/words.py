@@ -30,4 +30,4 @@ def words_index(request: Request) -> HTMLResponse:
 def practice_word(word: str, was_correct: str = Form("true")) -> HTMLResponse:
     update_word_after_practice(word, was_correct.lower() == "true")
     # `word` is a URL path param — escape before echoing into HTML.
-    return HTMLResponse(f"<span class='muted'>Recorded: {html.escape(word)}</span>")
+    return HTMLResponse(f"<span class='muted'>Reviewed: {html.escape(word)}</span>")

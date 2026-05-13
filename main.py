@@ -11,6 +11,7 @@ from recorder import record_audio, save_recording, load_audio, get_duration, pla
 from analyzer import analyze_prosody
 from feedback import display_analysis, display_quick_feedback
 from coach import analyze_parallel, display_coaching
+from config import COACH_PROVIDER
 from prompts import (
     get_prompt_by_id,
     get_prompts_by_category,
@@ -55,7 +56,184 @@ app = typer.Typer(
     help="Analyze and improve your English prosody (pitch, volume, tempo, rhythm, pauses).",
     add_completion=False,
 )
+local_app = typer.Typer(
+    help="Configure and diagnose fully local AI coaching.",
+    add_completion=False,
+)
+app.add_typer(local_app, name="local")
 console = Console()
+
+
+def normalize_provider(provider: str) -> str:
+    """Normalize AI provider aliases for CLI options."""
+    normalized = (provider or "gemini").strip().lower()
+    aliases = {
+        "gemini": "gemini",
+        "google": "gemini",
+        "local": "local",
+        "llama": "local",
+        "llamacpp": "local",
+        "llama.cpp": "local",
+    }
+    if normalized not in aliases:
+        raise typer.BadParameter("Provider must be 'gemini' or 'local'.")
+    return aliases[normalized]
+
+
+def run_coaching_provider(
+    provider: str,
+    audio_data,
+    sample_rate: int,
+    analysis,
+    audio_path: Optional[Path] = None,
+    expected_text: Optional[str] = None,
+):
+    """Run AI coaching through Gemini or the local provider."""
+    provider = normalize_provider(provider)
+    if provider == "local":
+        from local_coach import analyze_with_local_coach
+
+        return analyze_with_local_coach(
+            audio_data=audio_data,
+            sample_rate=sample_rate,
+            prosody=analysis,
+            audio_path=audio_path,
+            expected_text=expected_text,
+        )
+
+    if expected_text:
+        from coach import analyze_with_coach_practice
+
+        return analyze_with_coach_practice(
+            audio_data,
+            sample_rate,
+            analysis,
+            expected_text,
+        )
+
+    from coach import analyze_with_coach
+
+    return analyze_with_coach(audio_data, sample_rate, analysis)
+
+
+def generate_tailored_prompt_for_provider(
+    provider: str,
+    weaknesses: dict,
+    due_sounds: Optional[list[dict]] = None,
+    due_words: Optional[list[dict]] = None,
+) -> dict:
+    """Generate tailored practice text through the selected AI provider."""
+    provider = normalize_provider(provider)
+    if provider == "local":
+        from local_coach import generate_local_tailored_prompt
+
+        return generate_local_tailored_prompt(
+            weaknesses,
+            due_sounds=due_sounds,
+            due_words=due_words,
+        )
+
+    from coach import generate_tailored_prompt
+
+    return generate_tailored_prompt(
+        weaknesses,
+        due_sounds=due_sounds,
+        due_words=due_words,
+    )
+
+
+@local_app.command("setup")
+def local_setup():
+    """Show setup commands for whisper.cpp plus llama.cpp/Gemma."""
+    setup_text = """
+[bold]1. Install local runtimes[/bold]
+
+  brew install whisper-cpp llama.cpp
+
+[bold]2. Download models[/bold]
+
+  mkdir -p "$HOME/models/whisper"
+  curl -L -o "$HOME/models/whisper/ggml-base.en.bin" \\
+    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
+
+  # llama.cpp can download a Gemma GGUF from Hugging Face on first run.
+  # For a MacBook Pro M4 with 48 GB RAM, start with Gemma 4 E4B Q4_K_M.
+
+[bold]3. Start the local LLM server[/bold]
+
+  llama-server -hf ggml-org/gemma-4-E4B-it-GGUF:Q4_K_M \\
+    --host 127.0.0.1 --port 8080 -ngl 99
+
+[bold]4. (Recommended) Start whisper-server for fast transcription[/bold]
+
+  # Keeps the Whisper model resident in RAM; ~4-10x faster than the CLI.
+  whisper-server -m "$HOME/models/whisper/ggml-base.en.bin" \\
+    --host 127.0.0.1 --port 9000 -t 8
+
+[bold]5. Configure Prosody Coach[/bold]
+
+  export PROSODY_COACH_PROVIDER=local
+  export WHISPER_CPP_BIN="$(which whisper-cli)"
+  export WHISPER_MODEL="$HOME/models/whisper/ggml-base.en.bin"
+  export LOCAL_LLM_BASE_URL="http://127.0.0.1:8080/v1"
+  export LOCAL_LLM_MODEL="ggml-org/gemma-4-E4B-it-GGUF:Q4_K_M"
+  # Optional: route transcription through the running whisper-server
+  export LOCAL_WHISPER_SERVER_URL="http://127.0.0.1:9000"
+
+[bold]6. Test it[/bold]
+
+  prosody local doctor
+  prosody analyze --coach --provider local
+  prosody practice --provider local
+"""
+    console.print()
+    console.print(Panel(setup_text.strip(), title="[bold]Local AI Setup[/bold]", border_style="cyan"))
+
+
+@local_app.command("config")
+def local_config():
+    """Print the current local provider configuration."""
+    from rich.table import Table
+    from local_coach import LocalCoachConfig
+
+    config = LocalCoachConfig.from_env()
+    table = Table(title="Local AI Configuration", border_style="blue")
+    table.add_column("Setting", style="cyan")
+    table.add_column("Value", style="white")
+    table.add_row("PROSODY_COACH_PROVIDER", COACH_PROVIDER)
+    table.add_row("WHISPER_CPP_BIN", config.whisper_bin)
+    table.add_row("WHISPER_MODEL", config.whisper_model or "[dim]not set[/dim]")
+    table.add_row("LOCAL_WHISPER_SERVER_URL", config.whisper_server_url or "[dim]not set (using CLI)[/dim]")
+    table.add_row("LOCAL_LLM_BASE_URL", config.llm_base_url)
+    table.add_row("LOCAL_LLM_MODEL", config.llm_model)
+    table.add_row("LOCAL_LLM_TIMEOUT", str(config.llm_timeout))
+    console.print()
+    console.print(table)
+
+
+@local_app.command("doctor")
+def local_doctor():
+    """Check whether the local AI provider is ready."""
+    from rich.table import Table
+    from local_coach import diagnose_local_setup
+
+    checks = diagnose_local_setup()
+    table = Table(title="Local AI Doctor", border_style="blue")
+    table.add_column("Check", style="cyan")
+    table.add_column("Status")
+    table.add_column("Detail", style="white")
+    table.add_column("Fix", style="dim")
+
+    for check in checks:
+        status = "[green]OK[/green]" if check.ok else "[red]Needs setup[/red]"
+        table.add_row(check.label, status, check.detail, "" if check.ok else check.fix)
+
+    console.print()
+    console.print(table)
+    if all(check.ok for check in checks):
+        console.print("[green]Local AI coaching is ready.[/green]")
+    else:
+        console.print("[yellow]Run `prosody local setup` for the setup commands.[/yellow]")
 
 
 @app.command()
@@ -79,7 +257,12 @@ def analyze(
     coach: bool = typer.Option(
         False,
         "--coach", "-c",
-        help="Enable AI coaching (transcription, grammar, tips) via Gemini.",
+        help="Enable AI coaching (transcription, grammar, tips).",
+    ),
+    provider: str = typer.Option(
+        COACH_PROVIDER,
+        "--provider",
+        help="AI coaching provider: gemini or local.",
     ),
     playback: bool = typer.Option(
         False,
@@ -97,6 +280,7 @@ def analyze(
     and personalized coaching tips.
     """
     try:
+        provider = normalize_provider(provider)
         filepath = file
         if file:
             # Analyze existing file
@@ -144,7 +328,7 @@ def analyze(
         analysis = None
         coaching = None
 
-        if coach:
+        if coach and provider == "gemini":
             # PARALLEL MODE: Run prosody + Gemini simultaneously with streaming
             from rich.live import Live
             from rich.text import Text
@@ -216,6 +400,21 @@ def analyze(
                 # Fall back to local prosody only
                 console.print("[dim]Falling back to local analysis...[/dim]")
                 analysis = analyze_prosody(audio_data, sample_rate)
+        elif coach and provider == "local":
+            # LOCAL AI: prosody metrics first, then Whisper transcript + local LLM coaching.
+            console.print("[dim]Analyzing prosody...[/dim]")
+            analysis = analyze_prosody(audio_data, sample_rate, audio_path=filepath)
+            try:
+                console.print("[dim]Transcribing with whisper.cpp and coaching with local LLM...[/dim]")
+                coaching = run_coaching_provider(
+                    provider,
+                    audio_data,
+                    sample_rate,
+                    analysis,
+                    audio_path=filepath,
+                )
+            except Exception as e:
+                console.print(f"[yellow]Local AI coaching unavailable: {e}[/yellow]")
         else:
             # LOCAL ONLY: Just prosody analysis
             console.print("[dim]Analyzing prosody...[/dim]")
@@ -390,6 +589,11 @@ def practice(
         "--save", "-s",
         help="Save the recording for later reference.",
     ),
+    provider: str = typer.Option(
+        COACH_PROVIDER,
+        "--provider",
+        help="AI coaching provider: gemini or local.",
+    ),
 ):
     """
     Practice reading specific texts with AI feedback.
@@ -405,6 +609,7 @@ def practice(
         prosody practice --list             # Show all prompts
     """
     try:
+        provider = normalize_provider(provider)
         # List mode
         if list_prompts:
             console.print()
@@ -501,7 +706,7 @@ def practice(
 
         # Start AI request in background while playing back
         import threading
-        from coach import analyze_with_coach_practice, display_coaching
+        from coach import display_coaching
 
         transcript = None
         ai_summary = None
@@ -519,8 +724,13 @@ def practice(
 
         def fetch_coaching():
             try:
-                coaching_result["coaching"] = analyze_with_coach_practice(
-                    audio_data, sample_rate, analysis, prompt_data["text"]
+                coaching_result["coaching"] = run_coaching_provider(
+                    provider,
+                    audio_data,
+                    sample_rate,
+                    analysis,
+                    audio_path=filepath,
+                    expected_text=prompt_data["text"],
                 )
             except Exception as e:
                 coaching_result["error"] = str(e)
@@ -598,6 +808,11 @@ def train(
         "--save/--no-save", "-s/-S",
         help="Save recordings to disk.",
     ),
+    provider: str = typer.Option(
+        COACH_PROVIDER,
+        "--provider",
+        help="AI coaching provider: gemini or local.",
+    ),
 ):
     """
     Start a tailored training session based on your practice history.
@@ -606,9 +821,10 @@ def train(
     custom practice prompts targeting your specific needs.
     """
     from rich.prompt import Prompt
-    from coach import generate_tailored_prompt, analyze_with_coach_practice, display_coaching
+    from coach import display_coaching
     from recorder import play_tts
 
+    provider = normalize_provider(provider)
     weaknesses = get_user_weaknesses(limit=10)
 
     if not weaknesses.get("sufficient_data"):
@@ -644,7 +860,7 @@ def train(
         console.print("[dim]Generating tailored prompt...[/dim]")
 
         try:
-            prompt_data = generate_tailored_prompt(weaknesses)
+            prompt_data = generate_tailored_prompt_for_provider(provider, weaknesses)
         except Exception as e:
             console.print(f"[red]Error generating prompt: {e}[/red]")
             raise typer.Exit(1)
@@ -715,8 +931,13 @@ def train(
 
         def fetch_coaching():
             try:
-                coaching_result["coaching"] = analyze_with_coach_practice(
-                    audio_data, sample_rate, analysis, prompt_data["text"]
+                coaching_result["coaching"] = run_coaching_provider(
+                    provider,
+                    audio_data,
+                    sample_rate,
+                    analysis,
+                    audio_path=filepath,
+                    expected_text=prompt_data["text"],
                 )
             except Exception as e:
                 coaching_result["error"] = str(e)
@@ -1590,10 +1811,12 @@ def show_interactive_menu():
 
 def run_tailored_training(Prompt, weaknesses: dict):
     """Run tailored training session based on user's weaknesses."""
-    from coach import generate_tailored_prompt, analyze_with_coach_practice, display_coaching
+    from coach import display_coaching
     from analyzer import analyze_prosody
     from recorder import record_audio, play_audio, get_duration, save_recording, play_tts
     from storage import save_session
+
+    provider = normalize_provider(COACH_PROVIDER)
 
     if not weaknesses.get("sufficient_data"):
         console.print()
@@ -1662,7 +1885,12 @@ def run_tailored_training(Prompt, weaknesses: dict):
         console.print("[dim]Generating tailored prompt...[/dim]")
 
         try:
-            prompt_data = generate_tailored_prompt(weaknesses, due_sounds=due_sounds, due_words=due_words)
+            prompt_data = generate_tailored_prompt_for_provider(
+                provider,
+                weaknesses,
+                due_sounds=due_sounds,
+                due_words=due_words,
+            )
         except Exception as e:
             console.print(f"[red]Error generating prompt: {e}[/red]")
             return
@@ -1733,8 +1961,13 @@ def run_tailored_training(Prompt, weaknesses: dict):
 
         def fetch_coaching():
             try:
-                coaching_result["coaching"] = analyze_with_coach_practice(
-                    audio_data, sample_rate, analysis, prompt_data["text"]
+                coaching_result["coaching"] = run_coaching_provider(
+                    provider,
+                    audio_data,
+                    sample_rate,
+                    analysis,
+                    audio_path=filepath,
+                    expected_text=prompt_data["text"],
                 )
             except Exception as e:
                 coaching_result["error"] = str(e)

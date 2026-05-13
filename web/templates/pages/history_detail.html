@@ -2,25 +2,46 @@
 {% set active = 'history' %}
 {% block title %}Session #{{ session.id }} — Prosody Coach{% endblock %}
 {% block content %}
-  <h2>Session #{{ session.id }}</h2>
-  <p class="muted">{{ session.created_at }} · {{ session.mode }} · via {{ session.coach_provider or 'unknown' }}</p>
+  <header class="page-header">
+    <div>
+      <span class="eyebrow"><a href="/history">← All sessions</a></span>
+      <h2>Session #{{ session.id }}</h2>
+      <p class="subtitle">{{ session.created_at }} · <span class="tag">{{ session.mode }}</span> · via {{ session.coach_provider or 'unknown' }}</p>
+    </div>
+  </header>
+
   {% if session.coach_status == 'failed' %}
     <div class="warning-banner">AI coaching failed: {{ session.coach_error }}</div>
   {% endif %}
 
-  <table>
-    <tr><th>Component</th><th>Score</th></tr>
-    <tr><td>Pitch</td>  <td class="score">{{ session.pitch_score }}</td></tr>
-    <tr><td>Volume</td> <td class="score">{{ session.volume_score }}</td></tr>
-    <tr><td>Tempo</td>  <td class="score">{{ session.tempo_score }}</td></tr>
-    <tr><td>Rhythm</td> <td class="score">{{ session.rhythm_score }}</td></tr>
-    <tr><td>Pauses</td> <td class="score">{{ session.pause_score }}</td></tr>
-  </table>
+  <div class="card">
+    <h3>Component scores</h3>
+    {% macro chip(label, score) -%}
+      {% set band = 'high' if score and score|float >= 7 else ('mid' if score and score|float >= 4 else 'low') %}
+      <div class="score-chip" data-{{ band }}>
+        <div class="label">{{ label }}</div>
+        <div class="value">{{ '%.0f' % (score|float) if score is not none else '—' }}<span class="muted" style="font-size:0.45em; margin-left:0.2em;">/10</span></div>
+        <div class="meter"><span style="width: {{ ((score|float) * 10)|round if score is not none else 0 }}%;"></span></div>
+      </div>
+    {%- endmacro %}
+    <div class="score-row">
+      {{ chip('Pitch',  session.pitch_score) }}
+      {{ chip('Volume', session.volume_score) }}
+      {{ chip('Tempo',  session.tempo_score) }}
+      {{ chip('Rhythm', session.rhythm_score) }}
+      {{ chip('Pauses', session.pause_score) }}
+    </div>
 
-  {% if session.transcript %}<p><strong>Transcript:</strong> {{ session.transcript }}</p>{% endif %}
-  {% if session.ai_summary %}<p>{{ session.ai_summary }}</p>{% endif %}
+    {% if session.transcript or session.ai_summary %}
+      <div class="coach">
+        <h4>AI coach</h4>
+        {% if session.transcript %}<p class="transcript">&ldquo;{{ session.transcript }}&rdquo;</p>{% endif %}
+        {% if session.ai_summary %}<p>{{ session.ai_summary }}</p>{% endif %}
+      </div>
+    {% endif %}
 
-  {% if recording_name %}
-    <audio controls src="/audio/{{ recording_name }}"></audio>
-  {% endif %}
+    {% if recording_name %}
+      <audio controls src="/audio/{{ recording_name }}"></audio>
+    {% endif %}
+  </div>
 {% endblock %}

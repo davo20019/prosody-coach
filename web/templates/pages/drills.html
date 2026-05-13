@@ -2,56 +2,79 @@
 {% set active = 'drills' %}
 {% block title %}Drills — Prosody Coach{% endblock %}
 {% block content %}
-  <h2>Rhythm Drills</h2>
+  <header class="page-header">
+    <div>
+      <span class="eyebrow">Stress-timed English</span>
+      <h2>Rhythm drills</h2>
+      <p class="subtitle">Short, focused passages that train the timing pattern English speakers expect.</p>
+    </div>
+  </header>
+
+  <div class="stat-grid">
+    <div class="stat-tile">
+      <div class="label">Baseline nPVI</div>
+      <div class="value">{{ '%.1f' % progress.npvi_baseline if progress.npvi_baseline else '—' }}</div>
+    </div>
+    <div class="stat-tile">
+      <div class="label">Current nPVI</div>
+      <div class="value">{{ '%.1f' % progress.npvi_current if progress.npvi_current else '—' }}</div>
+    </div>
+    <div class="stat-tile">
+      <div class="label">Current level</div>
+      <div class="value">{{ progress.current_level }}</div>
+    </div>
+  </div>
+
   <div class="card">
-    <h3>Status</h3>
-    <p>Baseline nPVI:
-      <strong>{{ '%.1f' % progress.npvi_baseline if progress.npvi_baseline else '— not set —' }}</strong>
-    </p>
-    <p>Current nPVI:
-      <strong>{{ '%.1f' % progress.npvi_current if progress.npvi_current else '— no data —' }}</strong>
-    </p>
-    <p>Current level: <strong>{{ progress.current_level }}</strong></p>
-    <form action="/drills/baseline" method="post" hx-post="/drills/baseline" hx-target="#baseline-result" hx-swap="innerHTML">
-      <label>Set baseline nPVI: <input type="number" name="npvi" step="0.1" required></label>
-      <button type="submit">Save</button>
+    <h3>Set baseline</h3>
+    <form action="/drills/baseline" method="post" hx-post="/drills/baseline" hx-target="#baseline-result" hx-swap="innerHTML"
+          style="display: flex; align-items: flex-end; gap: 0.75rem; flex-wrap: wrap;">
+      <label style="margin: 0; flex: 0 0 auto;">
+        Baseline nPVI
+        <input type="number" name="npvi" step="0.1" required style="max-width: 160px;">
+      </label>
+      <button type="submit">Save baseline</button>
     </form>
-    <div id="baseline-result"></div>
+    <div id="baseline-result" style="margin-top: 0.75rem;"></div>
   </div>
 
   <div class="card">
     <h3>Due for practice</h3>
     {% if due %}
       <table>
-        <tr><th>Drill</th><th>Level</th><th>Last attempted</th><th></th></tr>
-        {% for d in due %}
-          <tr>
-            <td>{{ d.text or d.drill_id }}</td>
-            <td>{{ d.level }}</td>
-            <td>{{ d.last_attempted or '—' }}</td>
-            <td><a href="/drills/level/{{ d.level }}?drill_id={{ d.drill_id }}">practice this drill</a></td>
-          </tr>
-        {% endfor %}
+        <thead><tr><th>Drill</th><th>Level</th><th>Last attempted</th><th></th></tr></thead>
+        <tbody>
+          {% for d in due %}
+            <tr>
+              <td>{{ d.text or d.drill_id }}</td>
+              <td><span class="tag">L{{ d.level }}</span></td>
+              <td>{{ d.last_attempted or '—' }}</td>
+              <td><a href="/drills/level/{{ d.level }}?drill_id={{ d.drill_id }}">Practice →</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
       </table>
     {% else %}
-      <p class="muted">Nothing due right now.</p>
+      <p class="muted">Nothing due right now — beautiful.</p>
     {% endif %}
   </div>
 
   <div class="card">
     <h3>Levels</h3>
     <table>
-      <tr><th>Level</th><th>Consecutive passes</th><th>Total attempts</th><th>Unlocked</th><th></th></tr>
-      {% for level in levels %}
-        {% set lvl = progress.levels.get(level, {}) %}
-        <tr>
-          <td>Level {{ level }}</td>
-          <td>{{ lvl.get('consecutive_passes', 0) }}</td>
-          <td>{{ lvl.get('total_attempts', 0) }}</td>
-          <td>{{ lvl.get('unlocked_at') or '—' }}</td>
-          <td><a href="/drills/level/{{ level }}">practice</a></td>
-        </tr>
-      {% endfor %}
+      <thead><tr><th>Level</th><th>Consecutive passes</th><th>Total attempts</th><th>Unlocked</th><th></th></tr></thead>
+      <tbody>
+        {% for level in levels %}
+          {% set lvl = progress.levels.get(level, {}) %}
+          <tr>
+            <td><strong>Level {{ level }}</strong></td>
+            <td>{{ lvl.get('consecutive_passes', 0) }}</td>
+            <td>{{ lvl.get('total_attempts', 0) }}</td>
+            <td>{{ lvl.get('unlocked_at') or '—' }}</td>
+            <td><a href="/drills/level/{{ level }}">Practice →</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
     </table>
   </div>
 {% endblock %}

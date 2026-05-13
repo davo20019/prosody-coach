@@ -12,8 +12,15 @@ from coach import generate_tailored_prompt
 from coach_pipeline import analyze_session
 from config import COACH_PROVIDER, RECORDINGS_DIR
 from prompts import get_prompt_by_id, get_random_prompt
-from storage import get_session, save_session
+from storage import (
+    get_due_words,
+    get_session,
+    save_session,
+    update_sound_after_practice,
+    update_word_after_practice,
+)
 from web.audio_io import TranscodeError, transcode_to_wav
+from web.spaced_repetition import update_practiced_due_words, update_practiced_target_sounds
 
 router = APIRouter()
 
@@ -135,6 +142,7 @@ async def analyze(
     prompt_id: Optional[str] = Form(None),
     expected_text: Optional[str] = Form(None),
     custom_text: Optional[str] = Form(None),
+    target_sounds: Optional[list[str]] = Form(None),
 ) -> HTMLResponse:
     templates = request.app.state.templates
 
@@ -203,6 +211,18 @@ async def analyze(
         coach_status=result.status,
         coach_error=result.error,
     )
+    if result.status == "ok":
+        update_practiced_due_words(
+            expected,
+            coach.get("pronunciation_issues"),
+            get_due_words,
+            update_word_after_practice,
+        )
+        update_practiced_target_sounds(
+            target_sounds,
+            coach.get("pronunciation_issues"),
+            update_sound_after_practice,
+        )
 
     return templates.TemplateResponse(
         request,

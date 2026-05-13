@@ -173,6 +173,23 @@ TECHNIQUE_EXPLANATIONS = {
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-2.5-flash-lite"
 
+# AI coaching provider
+# gemini: send audio directly to Gemini for transcription + coaching
+# local: use whisper.cpp for transcription and a local OpenAI-compatible LLM
+COACH_PROVIDER = os.environ.get("PROSODY_COACH_PROVIDER", "gemini").strip().lower()
+
+# Local AI settings
+# WHISPER_CPP_BIN can be "whisper-cli" if it is on PATH, or an absolute path.
+# WHISPER_MODEL should point to a whisper.cpp GGML .bin model file.
+LOCAL_WHISPER_BIN = os.environ.get("WHISPER_CPP_BIN", "whisper-cli")
+LOCAL_WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "")
+LOCAL_LLM_BASE_URL = os.environ.get("LOCAL_LLM_BASE_URL", "http://127.0.0.1:8080/v1")
+LOCAL_LLM_MODEL = os.environ.get("LOCAL_LLM_MODEL", "gemma-local")
+LOCAL_LLM_TIMEOUT = float(os.environ.get("LOCAL_LLM_TIMEOUT", "120"))
+# Optional: point to a running whisper.cpp HTTP server (e.g. http://127.0.0.1:9000) to
+# skip per-call model loading. When set, the local coach uses WhisperServerTranscriber.
+LOCAL_WHISPER_SERVER_URL = os.environ.get("LOCAL_WHISPER_SERVER_URL", "")
+
 # Gemini Live API settings (real-time streaming)
 GEMINI_LIVE_MODEL = "gemini-2.0-flash-exp"
 REALTIME_FEEDBACK_DELAY = 2.0  # Seconds before next drill

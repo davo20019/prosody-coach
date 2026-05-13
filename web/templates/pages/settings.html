@@ -2,53 +2,71 @@
 {% set active = 'settings' %}
 {% block title %}Settings — Prosody Coach{% endblock %}
 {% block content %}
-  <h2>Settings</h2>
-  <p class="muted">Read-only in v1. Edit your <code>.env</code> file and restart the server to change provider or keys.</p>
+  <header class="page-header">
+    <div>
+      <span class="eyebrow">Read-only in v1</span>
+      <h2>Settings</h2>
+      <p class="subtitle">To change provider or keys, edit your <code>.env</code> and restart the server.</p>
+    </div>
+  </header>
 
   {% if needs_warning %}
-    <div class="warning-banner">
-      No AI coaching configured. Set <code>GEMINI_API_KEY</code> in .env and restart, or install the local stack.
+    <div class="warning-banner" style="margin-bottom: 1rem;">
+      No AI coaching configured. Set <code>GEMINI_API_KEY</code> in <code>.env</code> and restart, or install the local stack.
     </div>
   {% endif %}
 
   <div class="card">
     <h3>Active provider</h3>
-    <p><code>{{ provider }}</code></p>
-    <p>Gemini API key: {% if has_gemini_key %}<span>set</span>{% else %}<span class="muted">not set</span>{% endif %}</p>
+    <p>Provider: <code>{{ provider }}</code></p>
+    <p>Gemini API key:
+      {% if has_gemini_key %}
+        <span class="tag sage">set</span>
+      {% else %}
+        <span class="tag">not set</span>
+      {% endif %}
+    </p>
   </div>
 
   <div class="card">
-    <h3>Local AI configuration <span class="muted">(CLI: <code>prosody local config</code>)</span></h3>
+    <h3>Local AI configuration <span class="muted" style="font-weight: 400; font-style: italic; font-family: 'Fraunces', serif; font-size: 0.85rem;">CLI: <code>prosody local config</code></span></h3>
     <table>
-      <tr><th>Setting</th><th>Value</th></tr>
-      <tr><td>PROSODY_COACH_PROVIDER</td><td><code>{{ provider }}</code></td></tr>
-      <tr><td>WHISPER_CPP_BIN</td><td><code>{{ local_config.whisper_bin or '— not set —' }}</code></td></tr>
-      <tr><td>WHISPER_MODEL</td><td><code>{{ local_config.whisper_model or '— not set —' }}</code></td></tr>
-      <tr><td>LOCAL_WHISPER_SERVER_URL</td><td><code>{{ local_config.whisper_server_url or '— not set (using CLI) —' }}</code></td></tr>
-      <tr><td>LOCAL_LLM_BASE_URL</td><td><code>{{ local_config.llm_base_url }}</code></td></tr>
-      <tr><td>LOCAL_LLM_MODEL</td><td><code>{{ local_config.llm_model }}</code></td></tr>
-      <tr><td>LOCAL_LLM_TIMEOUT</td><td><code>{{ local_config.llm_timeout }}</code></td></tr>
+      <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>PROSODY_COACH_PROVIDER</td><td><code>{{ provider }}</code></td></tr>
+        <tr><td>WHISPER_CPP_BIN</td><td><code>{{ local_config.whisper_bin or '— not set —' }}</code></td></tr>
+        <tr><td>WHISPER_MODEL</td><td><code>{{ local_config.whisper_model or '— not set —' }}</code></td></tr>
+        <tr><td>LOCAL_WHISPER_SERVER_URL</td><td><code>{{ local_config.whisper_server_url or '— not set (using CLI) —' }}</code></td></tr>
+        <tr><td>LOCAL_LLM_BASE_URL</td><td><code>{{ local_config.llm_base_url }}</code></td></tr>
+        <tr><td>LOCAL_LLM_MODEL</td><td><code>{{ local_config.llm_model }}</code></td></tr>
+        <tr><td>LOCAL_LLM_TIMEOUT</td><td><code>{{ local_config.llm_timeout }}</code></td></tr>
+      </tbody>
     </table>
   </div>
 
   <div class="card">
-    <h3>Local AI doctor <span class="muted">(CLI: <code>prosody local doctor</code>)</span></h3>
+    <h3>Local AI doctor <span class="muted" style="font-weight: 400; font-style: italic; font-family: 'Fraunces', serif; font-size: 0.85rem;">CLI: <code>prosody local doctor</code></span></h3>
     <table>
-      <tr><th>Check</th><th>Status</th><th>Detail</th><th>Fix</th></tr>
-      {% for c in checks %}
-        <tr>
-          <td>{{ c.label }}</td>
-          <td>{% if c.ok %}OK{% else %}Needs setup{% endif %}</td>
-          <td>{{ c.detail }}</td>
-          <td class="muted">{% if not c.ok %}{{ c.fix }}{% endif %}</td>
-        </tr>
-      {% endfor %}
+      <thead><tr><th>Check</th><th>Status</th><th>Detail</th><th>Fix</th></tr></thead>
+      <tbody>
+        {% for c in checks %}
+          <tr>
+            <td>{{ c.label }}</td>
+            <td>
+              {% if c.ok %}<span class="tag sage">OK</span>
+              {% else %}<span class="tag apricot">Needs setup</span>{% endif %}
+            </td>
+            <td>{{ c.detail }}</td>
+            <td class="muted">{% if not c.ok %}{{ c.fix }}{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
     </table>
-    <p class="muted">For setup commands, run <code>prosody local setup</code> in your terminal.</p>
+    <p class="muted" style="margin-top: 0.75rem;">For setup commands, run <code>prosody local setup</code> in your terminal.</p>
   </div>
 
   <div class="card">
-    <h3>About prosody <span class="muted">(CLI: <code>prosody info</code>)</span></h3>
+    <h3>About prosody <span class="muted" style="font-weight: 400; font-style: italic; font-family: 'Fraunces', serif; font-size: 0.85rem;">CLI: <code>prosody info</code></span></h3>
     <p><strong>Pitch (intonation).</strong> The highness or lowness of your voice. English uses wide pitch variation to convey meaning and emotion. <span class="muted">Target: 100–150 Hz variation range.</span></p>
     <p><strong>Volume (stress).</strong> Loudness variation between stressed and unstressed syllables. English emphasizes important words by making them louder. <span class="muted">Target: 6–10 dB contrast.</span></p>
     <p><strong>Tempo (speed).</strong> Speaking rate and its variation. <span class="muted">Target: 130–160 WPM with 15–25% variation.</span></p>
