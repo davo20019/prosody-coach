@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% set active = 'prompts' %}
+{% block title %}Prompts — Prosody Coach{% endblock %}
+{% block content %}
+  <h2>Prompts</h2>
+  <p><a href="/prompts/random" class="btn">Pick a random prompt</a></p>
+  {% for category in categories %}
+    <h3>{{ category }}</h3>
+    <ul>
+      {% for p in prompts_by_category.get(category, []) %}
+        <li><a href="/practice?prompt_id={{ p.id }}">{{ p.text }}</a></li>
+      {% endfor %}
+    </ul>
+  {% endfor %}
+{% endblock %}

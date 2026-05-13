@@ -17,9 +17,10 @@ def create_app() -> FastAPI:
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.state.templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
-    from web.routes import audio, practice
+    from web.routes import audio, practice, prompts
     app.include_router(audio.router)
     app.include_router(practice.router)
+    app.include_router(prompts.router)
 
     @app.get("/healthz")
     def healthz() -> dict:
