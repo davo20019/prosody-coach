@@ -286,12 +286,12 @@ This combines the existing flat `py-modules` list with explicit package discover
 
 **`prosody serve` (new Typer command in `main.py`):**
 ```
-prosody serve [--host 127.0.0.1] [--port 7860] [--no-browser] [--reload]
+prosody serve [--port 7860] [--no-browser] [--reload]
 ```
-- Defaults: bind `127.0.0.1` only (never `0.0.0.0`).
+- Hardcoded bind: `127.0.0.1`. **There is intentionally no `--host` flag.** The security model (no auth, no CSRF, API keys readable from the rendered settings page) only holds for a localhost-bound server.
 - `--no-browser` skips auto-open.
 - `--reload` enables uvicorn autoreload (developer ergonomics).
-- Implementation: `uvicorn.run("web.app:create_app", factory=True, ...)` + `webbrowser.open(f"http://{host}:{port}")` after a 500 ms delay.
+- Implementation: `uvicorn.run("web.app:create_app", host="127.0.0.1", factory=True, ...)` + `webbrowser.open(f"http://127.0.0.1:{port}")` after a 500 ms delay.
 
 **Doctor reuse:** the existing `prosody local doctor` command already covers the "what's installed?" diagnostic. Web error messages refer to it. No new `doctor` command is added.
 
