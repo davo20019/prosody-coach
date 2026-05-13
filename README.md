@@ -27,6 +27,34 @@ Prosody is the "music" of speech - the patterns of rhythm, stress, and intonatio
 | **Rhythm** | Syllable timing pattern (nPVI) | 55-65 (stress-timed) |
 | **Pauses** | Strategic silence placement | 3-5 per 30 seconds |
 
+## Web UI
+
+Prosody Coach ships with an optional local web UI. After installing the package, run:
+
+```bash
+prosody serve
+```
+
+This starts a small local server bound to `127.0.0.1:7860` and opens your browser. Use `--no-browser` to skip the auto-open or `--port` to change the port.
+
+### Requirements
+- Everything the CLI needs, plus:
+- `ffmpeg` on your `PATH` (used to convert browser-recorded audio to WAV).
+  - macOS: `brew install ffmpeg`
+  - Debian/Ubuntu: `sudo apt install ffmpeg`
+  - Windows: `choco install ffmpeg`
+
+### What's available in the UI
+- Practice (with custom text or a chosen prompt)
+- Tailored Train sessions driven by your weakness history
+- Prompts browser
+- History (list, detail with audio playback, 30-day stats with chart)
+- Rhythm Drills (baseline, level practice, attempts)
+- Spaced-repetition Sounds and Words pages
+- Read-only Settings (current provider, API key presence, local AI diagnostic)
+
+To change provider or API keys, edit `.env` and restart the server. The Settings page is read-only in v1.
+
 ## Installation
 
 ### Prerequisites
