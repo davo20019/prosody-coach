@@ -1,0 +1,33 @@
+<div class="card">
+  <h3>Results</h3>
+
+  {% if passed is defined %}
+    <p class="{{ 'success-banner' if passed else 'warning-banner' }}">
+      {{ pass_label }}
+    </p>
+  {% endif %}
+
+  <table>
+    <tr><th>Component</th><th>Score</th><th>Feedback</th></tr>
+    <tr><td>Pitch</td>  <td class="score">{{ analysis.pitch.score }}</td>  <td>{{ analysis.pitch.feedback }}</td></tr>
+    <tr><td>Volume</td> <td class="score">{{ analysis.volume.score }}</td> <td>{{ analysis.volume.feedback }}</td></tr>
+    <tr><td>Tempo</td>  <td class="score">{{ analysis.tempo.score }}</td>  <td>{{ analysis.tempo.feedback }}</td></tr>
+    <tr><td>Rhythm</td> <td class="score">{{ analysis.rhythm.score }}</td> <td>{{ analysis.rhythm.feedback }}</td></tr>
+    <tr><td>Pauses</td> <td class="score">{{ analysis.pauses.score }}</td> <td>{{ analysis.pauses.feedback }}</td></tr>
+  </table>
+
+  {% if coach %}
+    <h4>AI Coach <span class="muted">(via {{ provider }})</span></h4>
+    {% if coach.transcript %}<p><strong>Transcript:</strong> {{ coach.transcript }}</p>{% endif %}
+    {% if coach.summary %}<p>{{ coach.summary }}</p>{% endif %}
+    {% if coach.tips %}
+      <ul>{% for tip in coach.tips %}<li>{{ tip }}</li>{% endfor %}</ul>
+    {% endif %}
+  {% else %}
+    <div class="warning-banner">AI coaching unavailable: {{ error or "unknown error" }}</div>
+  {% endif %}
+
+  {% if recording_name %}
+    <audio controls src="/audio/{{ recording_name }}"></audio>
+  {% endif %}
+</div>
