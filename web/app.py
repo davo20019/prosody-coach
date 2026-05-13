@@ -17,6 +17,9 @@ def create_app() -> FastAPI:
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.state.templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
+    from web.routes import audio
+    app.include_router(audio.router)
+
     @app.get("/healthz")
     def healthz() -> dict:
         return {"status": "ok"}
