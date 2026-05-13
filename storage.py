@@ -39,6 +39,9 @@ SESSION_COLUMN_DEFINITIONS = {
     "pronunciation_issues": "TEXT",
     "fluency_score": "INTEGER",
     "fluency_feedback": "TEXT",
+    "coach_provider": "TEXT",
+    "coach_status": "TEXT",
+    "coach_error": "TEXT",
 }
 
 
@@ -303,6 +306,9 @@ def save_session(
     pronunciation_issues: Optional[list[dict]] = None,
     fluency_score: Optional[int] = None,
     fluency_feedback: Optional[str] = None,
+    coach_provider: Optional[str] = None,
+    coach_status: Optional[str] = None,
+    coach_error: Optional[str] = None,
 ) -> int:
     """
     Save an analysis session to the database.
@@ -348,8 +354,9 @@ def save_session(
                 grammar_issues, suggested_revision,
                 confidence_score, confidence_feedback,
                 filler_word_count, filler_words_detail,
-                pronunciation_issues, fluency_score, fluency_feedback
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                pronunciation_issues, fluency_score, fluency_feedback,
+                coach_provider, coach_status, coach_error
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 datetime.now().isoformat(),
@@ -380,6 +387,9 @@ def save_session(
                 pron_json,
                 fluency_score,
                 fluency_feedback,
+                coach_provider,
+                coach_status,
+                coach_error,
             ),
         )
         session_id = cursor.lastrowid
