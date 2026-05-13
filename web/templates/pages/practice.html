@@ -4,10 +4,16 @@
 {% block content %}
   <h2>Practice</h2>
 
+  {% if prompt_source == 'followup' %}
+    <p class="muted">Generated to target the weak spots from session #{{ followup_session_id }}.</p>
+  {% elif prompt_source == 'fallback' and followup_session_id %}
+    <p class="muted">Tailored generation unavailable; showing a random prompt.</p>
+  {% endif %}
+
   <form action="/practice/analyze" method="post" enctype="multipart/form-data" data-recorder>
     {% if prompt %}
       <p><strong>Prompt:</strong> {{ prompt.text }}</p>
-      <input type="hidden" name="prompt_id" value="{{ prompt.id }}">
+      <input type="hidden" name="prompt_id" value="{{ prompt.id or '' }}">
       <input type="hidden" name="expected_text" value="{{ prompt.text }}">
     {% else %}
       <label>Custom text (optional):

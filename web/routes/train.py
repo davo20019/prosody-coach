@@ -91,7 +91,7 @@ async def analyze(
     coach = result.coach or {}
     # Mirror the practice route's full field list so train sessions also feed
     # pronunciation/grammar/filler-word/confidence spaced repetition.
-    save_session(
+    sid = save_session(
         result.analysis,
         mode=mode, prompt_id=prompt_id,
         recording_path=str(wav_path),
@@ -118,5 +118,6 @@ async def analyze(
             "analysis": result.analysis, "coach": result.coach,
             "provider": result.provider, "error": result.error,
             "recording_name": recording_name,
+            "session_id": sid,
         },
     )

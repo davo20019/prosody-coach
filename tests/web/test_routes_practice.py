@@ -162,3 +162,110 @@ def test_analyze_returns_error_banner_when_praat_fails(client, tmp_path, monkeyp
     assert response.status_code == 200
     assert "Audio analysis failed" in response.text
     assert "Sound is too short" in response.text
+
+
+def test_analyze_card_links_to_followup_when_coach_ok(client, tmp_path, monkeypatch):
+    """Practice POST should render the 'Try a sentence targeting this' button
+    pointing at /practice/followup/<id> when the coach succeeded."""
+    monkeypatch.setattr("web.routes.practice.RECORDINGS_DIR", tmp_path)
+    monkeypatch.setattr(
+        "web.routes.practice.transcode_to_wav",
+        lambda src, dst: (sf.write(dst, np.zeros(16000, dtype=np.int16), 16000, subtype="PCM_16") or dst),
+    )
+    monkeypatch.setattr(
+        "web.routes.practice.analyze_session",
+        lambda *a, **k: _fake_pipeline_result(),
+    )
+    monkeypatch.setattr("web.routes.practice.save_session", lambda *a, **k: 17)
+
+    response = client.post(
+        "/practice/analyze",
+        data={"mode": "analyze"},
+        files={"audio": ("rec.webm", io.BytesIO(b"\x1a\x45\xdf\xa3"), "audio/webm")},
+    )
+    assert response.status_code == 200
+    assert "/practice/followup/17" in response.text
+    assert "Try a sentence targeting this" in response.text
+
+
+def test_analyze_card_omits_followup_when_coach_failed(client, tmp_path, monkeypatch):
+    """No followup button when AI coaching failed — there's no AI weakness data
+    to generate a tailored prompt from."""
+    monkeypatch.setattr("web.routes.practice.RECORDINGS_DIR", tmp_path)
+    monkeypatch.setattr(
+        "web.routes.practice.transcode_to_wav",
+        lambda src, dst: (sf.write(dst, np.zeros(16000, dtype=np.int16), 16000, subtype="PCM_16") or dst),
+    )
+    from coach_pipeline import SessionResult
+    failed = SessionResult(
+        analysis=_fake_pipeline_result().analysis,
+        coach=None, provider="gemini",
+        status="failed", error="API down",
+    )
+    monkeypatch.setattr("web.routes.practice.analyze_session", lambda *a, **k: failed)
+    monkeypatch.setattr("web.routes.practice.save_session", lambda *a, **k: 9)
+
+    response = client.post(
+        "/practice/analyze",
+        data={"mode": "analyze"},
+        files={"audio": ("rec.webm", io.BytesIO(b"\x1a\x45\xdf\xa3"), "audio/webm")},
+    )
+    assert response.status_code == 200
+    assert "/practice/followup/9" not in response.text
+    assert "Try a sentence targeting this" not in response.text
+
+
+def test_followup_generates_tailored_prompt_from_session(client, monkeypatch):
+    monkeypatch.setattr(
+        "web.routes.practice.get_session",
+        lambda sid: {
+            "id": sid,
+            "pitch_score": 9, "volume_score": 9, "tempo_score": 9,
+            "rhythm_score": 4,  # weakest
+            "pause_score": 8,
+            "pronunciation_issues": [{"sound": "th", "example": "the", "ipa": "/ð/", "tip": "voiced"}],
+        } if sid == 42 else None,
+    )
+    captured = {}
+    def fake_gen(weaknesses, due_sounds=None, due_words=None):
+        captured["weaknesses"] = weaknesses
+        return {"id": "followup-42", "text": "The thoughtful thinker thanked them.", "key_sounds": "th"}
+    monkeypatch.setattr("web.routes.practice.generate_tailored_prompt", fake_gen)
+
+    response = client.get("/practice/followup/42")
+    assert response.status_code == 200
+    assert "The thoughtful thinker thanked them." in response.text
+    # Synthesized weaknesses should include rhythm (lowest score) as a prosody focus
+    focus_areas = captured["weaknesses"]["focus_areas"]
+    prosody_areas = [f["area"] for f in focus_areas if f["type"] == "prosody"]
+    assert "rhythm" in prosody_areas
+    # And the pronunciation issue should be surfaced
+    pron_sounds = [f["sound"] for f in focus_areas if f["type"] == "pronunciation"]
+    assert "th" in pron_sounds
+
+
+def test_followup_404_for_unknown_session(client, monkeypatch):
+    monkeypatch.setattr("web.routes.practice.get_session", lambda sid: None)
+    response = client.get("/practice/followup/999")
+    assert response.status_code == 404
+
+
+def test_followup_falls_back_to_random_on_generation_failure(client, monkeypatch):
+    monkeypatch.setattr(
+        "web.routes.practice.get_session",
+        lambda sid: {
+            "id": sid, "pitch_score": 5, "volume_score": 5, "tempo_score": 5,
+            "rhythm_score": 5, "pause_score": 5, "pronunciation_issues": None,
+        },
+    )
+    def boom(*a, **k):
+        raise RuntimeError("no api key")
+    monkeypatch.setattr("web.routes.practice.generate_tailored_prompt", boom)
+    monkeypatch.setattr(
+        "web.routes.practice.get_random_prompt",
+        lambda *a, **k: {"id": "rand", "text": "Fallback sentence to read.", "category": "stress"},
+    )
+    response = client.get("/practice/followup/1")
+    assert response.status_code == 200
+    assert "Fallback sentence to read." in response.text
+    assert "Tailored generation unavailable" in response.text

@@ -1,20 +1,82 @@
 """Practice page — pick a prompt (or enter custom text), record, see results."""
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 import soundfile as sf
-from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from coach import generate_tailored_prompt
 from coach_pipeline import analyze_session
 from config import COACH_PROVIDER, RECORDINGS_DIR
-from prompts import get_prompt_by_id
-from storage import save_session
+from prompts import get_prompt_by_id, get_random_prompt
+from storage import get_session, save_session
 from web.audio_io import TranscodeError, transcode_to_wav
 
 router = APIRouter()
+
+
+# Sidebar order matches main.py's component naming; storage uses "pause"
+# (singular). _COMPONENT_KEYS maps display-friendly names to session column
+# bases, in the order generate_tailored_prompt expects.
+_COMPONENT_KEYS = ("pitch", "volume", "tempo", "rhythm", "pause")
+
+
+def _session_to_weaknesses(session: dict) -> dict:
+    """Build a weaknesses dict from a single session's analysis.
+
+    `coach.generate_tailored_prompt` expects the same shape that
+    `storage.get_user_weaknesses` produces from history (focus_areas,
+    difficulty, recurring_sounds). Here we synthesize that shape from one
+    session so the LLM can focus the new prompt on this session's specific
+    weak components and pronunciation issues.
+    """
+    scores = {c: session.get(f"{c}_score") or 0 for c in _COMPONENT_KEYS}
+    # Pick the two lowest-scoring components.
+    weakest = sorted(scores.items(), key=lambda kv: kv[1])[:2]
+
+    focus_areas: list[dict[str, Any]] = []
+    for area, score in weakest:
+        focus_areas.append({
+            "type": "prosody",
+            "area": area,
+            "score": score,
+            "description": f"Improve {area} (this session: {score}/10)",
+        })
+
+    # Surface pronunciation issues if the AI flagged any.
+    pron_issues = session.get("pronunciation_issues") or []
+    recurring_sounds: list[tuple] = []
+    seen: set[str] = set()
+    for issue in pron_issues:
+        sound = (issue or {}).get("sound", "")
+        if sound and sound not in seen:
+            seen.add(sound)
+            recurring_sounds.append((sound, 1))
+            focus_areas.append({
+                "type": "pronunciation",
+                "sound": sound,
+                "occurrences": 1,
+                "description": f"Practice '{sound}' sound (flagged in this session)",
+            })
+
+    overall = sum(scores.values()) / len(scores) if scores else 5
+    if overall >= 7:
+        difficulty = "advanced"
+    elif overall >= 5:
+        difficulty = "intermediate"
+    else:
+        difficulty = "beginner"
+
+    return {
+        "sufficient_data": True,
+        "session_count": 1,
+        "focus_areas": focus_areas,
+        "difficulty": difficulty,
+        "recurring_sounds": recurring_sounds,
+    }
 
 
 @router.get("/", include_in_schema=False)
@@ -30,6 +92,38 @@ def get_practice(request: Request, prompt_id: Optional[str] = None) -> HTMLRespo
         request,
         "pages/practice.html",
         {"prompt": prompt},
+    )
+
+
+@router.get("/practice/followup/{sid}", response_class=HTMLResponse)
+def practice_followup(request: Request, sid: int) -> HTMLResponse:
+    """Load the Practice page with an AI-generated sentence that targets the
+    weaknesses surfaced in session `sid`.
+
+    Falls back to a random prompt if generation fails (no API key, parse
+    error, etc.) — same pattern as the Train page.
+    """
+    session = get_session(sid)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    weaknesses = _session_to_weaknesses(session)
+    try:
+        prompt = generate_tailored_prompt(weaknesses)
+        prompt_source = "followup"
+    except Exception:
+        prompt = get_random_prompt()
+        prompt_source = "fallback"
+
+    templates = request.app.state.templates
+    return templates.TemplateResponse(
+        request,
+        "pages/practice.html",
+        {
+            "prompt": prompt,
+            "prompt_source": prompt_source,
+            "followup_session_id": sid,
+        },
     )
 
 
@@ -88,7 +182,7 @@ async def analyze(
 
     # 4) Persist (recording first on disk, row references it by path).
     coach = result.coach or {}
-    save_session(
+    sid = save_session(
         result.analysis,
         mode=mode,
         prompt_id=prompt_id,
@@ -119,5 +213,6 @@ async def analyze(
             "provider": result.provider,
             "error": result.error,
             "recording_name": recording_name,
+            "session_id": sid,
         },
     )

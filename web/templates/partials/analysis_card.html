@@ -30,4 +30,10 @@
   {% if recording_name %}
     <audio controls src="/audio/{{ recording_name }}"></audio>
   {% endif %}
+
+  {% if session_id and coach %}
+    <p>
+      <a href="/practice/followup/{{ session_id }}" class="btn">Try a sentence targeting this</a>
+    </p>
+  {% endif %}
 </div>
