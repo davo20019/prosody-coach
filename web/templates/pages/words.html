@@ -22,4 +22,15 @@
       {% endfor %}
     </table>
   </div>
+
+  <div class="card">
+    <h3>All tracked words</h3>
+    {% if tracked %}
+      <ul>
+        {% for w in tracked %}<li>{{ w.word }}{% if w.ipa %} ({{ w.ipa }}){% endif %} — mispronounced {{ w.times_mispronounced }}×</li>{% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No words tracked yet.</p>
+    {% endif %}
+  </div>
 {% endblock %}

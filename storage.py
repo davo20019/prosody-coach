@@ -1080,6 +1080,25 @@ def get_due_words(limit: int = 10) -> list[dict]:
         return [dict(row) for row in rows]
 
 
+def get_all_tracked_words() -> list[dict]:
+    """Get all tracked words with their stats."""
+    init_db()
+
+    with get_db() as db:
+        rows = db.execute(
+            """
+            SELECT
+                word, ipa, related_sound, first_seen,
+                times_mispronounced, times_practiced, times_correct,
+                interval_days, next_review
+            FROM word_tracking
+            ORDER BY times_mispronounced DESC
+            """
+        ).fetchall()
+
+        return [dict(row) for row in rows]
+
+
 def update_word_after_practice(word: str, was_correct: bool) -> None:
     """
     Update a word's spaced repetition schedule after practice.

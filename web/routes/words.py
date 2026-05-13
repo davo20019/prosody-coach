@@ -5,7 +5,11 @@ import html
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
-from storage import get_due_words, update_word_after_practice
+from storage import (
+    get_all_tracked_words,
+    get_due_words,
+    update_word_after_practice,
+)
 
 router = APIRouter()
 
@@ -13,9 +17,11 @@ router = APIRouter()
 @router.get("/words", response_class=HTMLResponse)
 def words_index(request: Request) -> HTMLResponse:
     due = get_due_words(limit=10)
+    tracked = get_all_tracked_words()
     templates = request.app.state.templates
     return templates.TemplateResponse(
-        "pages/words.html", {"request": request, "due": due}
+        "pages/words.html",
+        {"request": request, "due": due, "tracked": tracked},
     )
 
 
