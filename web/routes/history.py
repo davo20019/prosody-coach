@@ -16,8 +16,9 @@ def list_history(request: Request, mode: Optional[str] = None) -> HTMLResponse:
     sessions = get_history(limit=50, mode=mode)
     templates = request.app.state.templates
     return templates.TemplateResponse(
+        request,
         "pages/history.html",
-        {"request": request, "sessions": sessions, "mode_filter": mode},
+        {"sessions": sessions, "mode_filter": mode},
     )
 
 
@@ -37,9 +38,9 @@ def stats_page(request: Request) -> HTMLResponse:
     worst = bw.get("worst") or ("-", 0.0)
     templates = request.app.state.templates
     return templates.TemplateResponse(
+        request,
         "pages/stats.html",
         {
-            "request": request,
             "stats": stats,
             "averages": averages,
             "has_data": stats.get("total_sessions", 0) > 0,
@@ -63,6 +64,7 @@ def session_detail(request: Request, sid: int) -> HTMLResponse:
         recording_name = Path(session["recording_path"]).name
     templates = request.app.state.templates
     return templates.TemplateResponse(
+        request,
         "pages/history_detail.html",
-        {"request": request, "session": session, "recording_name": recording_name},
+        {"session": session, "recording_name": recording_name},
     )

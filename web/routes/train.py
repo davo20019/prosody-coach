@@ -40,9 +40,9 @@ def train_index(request: Request) -> HTMLResponse:
 
     templates = request.app.state.templates
     return templates.TemplateResponse(
+        request,
         "pages/train.html",
         {
-            "request": request,
             "prompt": prompt,
             "prompt_source": prompt_source,
             "weaknesses": weaknesses,
@@ -68,8 +68,9 @@ async def analyze(
     except TranscodeError as exc:
         tmp_in.unlink(missing_ok=True)
         return templates.TemplateResponse(
+            request,
             "partials/error_banner.html",
-            {"request": request, "message": f"Audio could not be processed. {exc}"},
+            {"message": f"Audio could not be processed. {exc}"},
         )
     finally:
         tmp_in.unlink(missing_ok=True)
@@ -83,8 +84,9 @@ async def analyze(
         )
     except Exception as exc:
         return templates.TemplateResponse(
+            request,
             "partials/error_banner.html",
-            {"request": request, "message": f"Audio analysis failed: {exc}"},
+            {"message": f"Audio analysis failed: {exc}"},
         )
     coach = result.coach or {}
     # Mirror the practice route's full field list so train sessions also feed
@@ -110,9 +112,9 @@ async def analyze(
         coach_error=result.error,
     )
     return templates.TemplateResponse(
+        request,
         "partials/analysis_card.html",
         {
-            "request": request,
             "analysis": result.analysis, "coach": result.coach,
             "provider": result.provider, "error": result.error,
             "recording_name": recording_name,

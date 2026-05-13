@@ -20,8 +20,9 @@ def sounds_index(request: Request) -> HTMLResponse:
     tracked = get_all_tracked_sounds()
     templates = request.app.state.templates
     return templates.TemplateResponse(
+        request,
         "pages/sounds.html",
-        {"request": request, "due": due, "tracked": tracked},
+        {"due": due, "tracked": tracked},
     )
 
 

@@ -27,8 +27,9 @@ def get_practice(request: Request, prompt_id: Optional[str] = None) -> HTMLRespo
     prompt = get_prompt_by_id(prompt_id) if prompt_id else None
     templates = request.app.state.templates
     return templates.TemplateResponse(
+        request,
         "pages/practice.html",
-        {"request": request, "prompt": prompt},
+        {"prompt": prompt},
     )
 
 
@@ -55,9 +56,9 @@ async def analyze(
     except TranscodeError as exc:
         tmp_in.unlink(missing_ok=True)
         return templates.TemplateResponse(
+            request,
             "partials/error_banner.html",
             {
-                "request": request,
                 "message": f"Audio could not be processed. Is ffmpeg installed? Run `prosody local doctor`. (Detail: {exc})",
             },
         )
@@ -80,8 +81,9 @@ async def analyze(
         )
     except Exception as exc:
         return templates.TemplateResponse(
+            request,
             "partials/error_banner.html",
-            {"request": request, "message": f"Audio analysis failed: {exc}"},
+            {"message": f"Audio analysis failed: {exc}"},
         )
 
     # 4) Persist (recording first on disk, row references it by path).
@@ -109,9 +111,9 @@ async def analyze(
     )
 
     return templates.TemplateResponse(
+        request,
         "partials/analysis_card.html",
         {
-            "request": request,
             "analysis": result.analysis,
             "coach": result.coach,
             "provider": result.provider,

@@ -80,8 +80,9 @@ def drills_index(request: Request) -> HTMLResponse:
     due = _enrich_due(get_due_rhythm_drills(limit=5))
     templates = request.app.state.templates
     return templates.TemplateResponse(
+        request,
         "pages/drills.html",
-        {"request": request, "levels": levels, "progress": progress, "due": due},
+        {"levels": levels, "progress": progress, "due": due},
     )
 
 
@@ -100,7 +101,7 @@ def drill_run(
         drill = get_random_rhythm_drill(level)
     templates = request.app.state.templates
     return templates.TemplateResponse(
-        "pages/drill_run.html", {"request": request, "drill": drill}
+        request, "pages/drill_run.html", {"drill": drill}
     )
 
 
@@ -131,8 +132,9 @@ async def attempt(
     except TranscodeError as exc:
         tmp_in.unlink(missing_ok=True)
         return templates.TemplateResponse(
+            request,
             "partials/error_banner.html",
-            {"request": request, "message": f"Audio could not be processed. {exc}"},
+            {"message": f"Audio could not be processed. {exc}"},
         )
     finally:
         tmp_in.unlink(missing_ok=True)
@@ -144,8 +146,9 @@ async def attempt(
         prosody = analyze_prosody(audio_data, sr, expected_text or None, wav_path)
     except Exception as exc:
         return templates.TemplateResponse(
+            request,
             "partials/error_banner.html",
-            {"request": request, "message": f"Audio analysis failed: {exc}"},
+            {"message": f"Audio analysis failed: {exc}"},
         )
 
     # 2) Run rhythm-specific AI coaching (Gemini path; the local provider has
@@ -237,9 +240,9 @@ async def attempt(
     # 6) Render analysis_card with pass/fail context. The template displays a
     #    PASS or "Keep practicing" badge when `passed` is provided.
     return templates.TemplateResponse(
+        request,
         "partials/analysis_card.html",
         {
-            "request": request,
             "analysis": prosody,
             "coach": coach_for_template,
             "provider": COACH_PROVIDER,

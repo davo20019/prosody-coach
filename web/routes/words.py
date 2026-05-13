@@ -20,8 +20,9 @@ def words_index(request: Request) -> HTMLResponse:
     tracked = get_all_tracked_words()
     templates = request.app.state.templates
     return templates.TemplateResponse(
+        request,
         "pages/words.html",
-        {"request": request, "due": due, "tracked": tracked},
+        {"due": due, "tracked": tracked},
     )
 
 

@@ -18,8 +18,9 @@ def list_prompts(request: Request) -> HTMLResponse:
     prompts_by_category = {c: get_prompts_by_category(c) for c in categories}
     templates = request.app.state.templates
     return templates.TemplateResponse(
+        request,
         "pages/prompts.html",
-        {"request": request, "categories": categories, "prompts_by_category": prompts_by_category},
+        {"categories": categories, "prompts_by_category": prompts_by_category},
     )
 
 
@@ -27,9 +28,9 @@ def list_prompts(request: Request) -> HTMLResponse:
 def list_category(request: Request, category: str) -> HTMLResponse:
     templates = request.app.state.templates
     return templates.TemplateResponse(
+        request,
         "pages/prompts.html",
         {
-            "request": request,
             "categories": [category],
             "prompts_by_category": {category: get_prompts_by_category(category)},
         },

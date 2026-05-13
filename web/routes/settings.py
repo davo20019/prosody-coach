@@ -20,9 +20,9 @@ def settings_index(request: Request) -> HTMLResponse:
     local_config = LocalCoachConfig.from_env()
     templates = request.app.state.templates
     return templates.TemplateResponse(
+        request,
         "pages/settings.html",
         {
-            "request": request,
             "provider": COACH_PROVIDER,
             "has_gemini_key": has_gemini_key,
             "checks": checks,
