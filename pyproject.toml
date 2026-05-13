@@ -20,10 +20,21 @@ dependencies = [
     "gTTS>=2.3.0",
     "webrtcvad>=2.0.10",
     "bournemouth-forced-aligner>=1.0.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+    "ffmpeg-python>=0.2",
 ]
 
 [project.scripts]
 prosody = "main:app"
 
 [tool.setuptools]
-py-modules = ["main", "analyzer", "coach", "config", "feedback", "prompts", "recorder", "storage", "realtime"]
+py-modules = ["main", "analyzer", "coach", "coach_pipeline", "config", "feedback", "local_coach", "prompts", "recorder", "storage", "realtime"]
+
+[tool.setuptools.packages.find]
+include = ["web*"]
+
+[tool.setuptools.package-data]
+web = ["templates/**/*.html", "static/**/*", "static/vendor/*"]
