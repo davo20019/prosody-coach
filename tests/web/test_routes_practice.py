@@ -4,6 +4,8 @@ def test_get_practice_renders_form(client):
     body = response.text
     assert 'data-recorder' in body
     assert 'data-record' in body  # the button
+    assert 'data-repeat-inline' in body
+    assert 'data-repeat-inline hidden' in body
     assert '/practice/analyze' in body  # the form action
     assert 'id="result-region"' in body
 
@@ -22,6 +24,102 @@ def test_practice_with_prompt_id_loads_prompt_text(client, monkeypatch):
     response = client.get("/practice?prompt_id=p1")
     assert response.status_code == 200
     assert "The quick brown fox" in response.text
+
+
+def test_practice_prompt_renders_collapsed_ipa_panel_when_available(client, monkeypatch):
+    monkeypatch.setattr(
+        "web.routes.practice.get_prompt_by_id",
+        lambda pid: {
+            "id": pid,
+            "text": "The thoughtful thinker thanked them.",
+            "category": "stress",
+            "key_sounds": "thoughtful /ˈθɔːtfəl/, thanked /θæŋkt/",
+            "target_words": [{"word": "thoughtful", "ipa": "ˈθɔːtfəl"}],
+            "target_sounds": [{"sound": "th", "ipa": "θ"}],
+        } if pid == "p1" else None,
+    )
+
+    response = client.get("/practice?prompt_id=p1")
+
+    assert response.status_code == 200
+    assert 'class="ipa-panel"' in response.text
+    assert "Show IPA" in response.text
+    assert "thoughtful /ˈθɔːtfəl/" in response.text
+    assert "thoughtful" in response.text
+    assert "θ" in response.text
+
+
+def test_practice_prompt_renders_word_ipa_below_each_word(client, monkeypatch):
+    monkeypatch.setattr(
+        "web.routes.practice.get_prompt_by_id",
+        lambda pid: {
+            "id": pid,
+            "text": "Although findings improved.",
+            "category": "stress",
+            "word_ipa": [
+                {"word": "Although", "ipa": "ɔlˈðoʊ"},
+                {"word": "findings", "ipa": "ˈfaɪndɪŋz"},
+                {"word": "improved", "ipa": "ɪmˈpruːvd"},
+            ],
+        } if pid == "p1" else None,
+    )
+
+    response = client.get("/practice?prompt_id=p1")
+
+    assert response.status_code == 200
+    assert 'class="prompt-ipa-shell"' in response.text
+    assert 'data-ipa-visible="false"' in response.text
+    assert 'data-toggle-prompt-ipa' in response.text
+    assert 'class="prompt-text prompt-interlinear"' in response.text
+    assert '<span class="ipa-word">Although</span>' in response.text
+    assert '<span class="ipa ipa-pron">/ɔlˈðoʊ/</span>' in response.text
+    assert '<span class="ipa-word">improved</span>' in response.text
+    assert '<span class="ipa ipa-pron">/ɪmˈpruːvd/</span>' in response.text
+    assert 'class="ipa-panel"' not in response.text
+
+
+def test_practice_prompt_renders_connected_speech_toggle(client, monkeypatch):
+    monkeypatch.setattr(
+        "web.routes.practice.get_prompt_by_id",
+        lambda pid: {
+            "id": pid,
+            "text": "I think the weather will be warm.",
+            "category": "stress",
+            "word_ipa": [
+                {"word": "I", "ipa": "aɪ"},
+                {"word": "think", "ipa": "θɪŋk"},
+                {"word": "the", "ipa": "ðə"},
+                {"word": "weather", "ipa": "ˈweðər"},
+            ],
+            "connected_speech": [
+                {
+                    "phrase": "I think the weather",
+                    "ipa": "aɪ θɪŋk ðə ˈweðər",
+                    "note": 'Keep "the" light and unstressed before "weather".',
+                },
+                {
+                    "phrase": "will be warm",
+                    "ipa": "wəl bi wɔːrm",
+                    "note": 'Reduce "will" toward /wəl/ in fast natural speech.',
+                },
+            ],
+        } if pid == "p1" else None,
+    )
+
+    response = client.get("/practice?prompt_id=p1")
+
+    assert response.status_code == 200
+    assert 'data-connected-visible="false"' in response.text
+    assert 'data-toggle-connected-speech' in response.text
+    assert "Show connected speech tips" in response.text
+    assert 'class="connected-speech"' in response.text
+    assert "Connected speech tips" in response.text
+    assert '<span class="connected-phrase">I think the weather</span>' in response.text
+    assert '<span class="ipa connected-pron">/aɪ θɪŋk ðə ˈweðər/</span>' in response.text
+    assert '<span class="connected-note">Keep &#34;the&#34; light and unstressed before &#34;weather&#34;.</span>' in response.text
+    assert '<span class="connected-phrase">will be warm</span>' in response.text
+    assert '<span class="ipa connected-pron">/wəl bi wɔːrm/</span>' in response.text
+    assert '<span class="connected-note">Reduce &#34;will&#34; toward /wəl/ in fast natural speech.</span>' in response.text
 
 
 def test_practice_with_unknown_prompt_id_renders_blank(client, monkeypatch):
@@ -253,6 +351,29 @@ def test_analyze_card_links_to_followup_when_coach_ok(client, tmp_path, monkeypa
     assert "Try a sentence targeting this" in response.text
 
 
+def test_analyze_card_offers_same_prompt_retry(client, tmp_path, monkeypatch):
+    monkeypatch.setattr("web.routes.practice.RECORDINGS_DIR", tmp_path)
+    monkeypatch.setattr(
+        "web.routes.practice.transcode_to_wav",
+        lambda src, dst: (sf.write(dst, np.zeros(16000, dtype=np.int16), 16000, subtype="PCM_16") or dst),
+    )
+    monkeypatch.setattr(
+        "web.routes.practice.analyze_session",
+        lambda *a, **k: _fake_pipeline_result(),
+    )
+    monkeypatch.setattr("web.routes.practice.save_session", lambda *a, **k: 17)
+
+    response = client.post(
+        "/practice/analyze",
+        data={"mode": "practice", "expected_text": "The quick brown fox"},
+        files={"audio": ("rec.webm", io.BytesIO(b"\x1a\x45\xdf\xa3"), "audio/webm")},
+    )
+
+    assert response.status_code == 200
+    assert "Practice this prompt again" in response.text
+    assert 'data-repeat-prompt' in response.text
+
+
 def test_analyze_card_omits_followup_when_coach_failed(client, tmp_path, monkeypatch):
     """No followup button when AI coaching failed — there's no AI weakness data
     to generate a tailored prompt from."""
@@ -334,3 +455,104 @@ def test_followup_falls_back_to_random_on_generation_failure(client, monkeypatch
     assert response.status_code == 200
     assert "Fallback sentence to read." in response.text
     assert "Tailored generation unavailable" in response.text
+
+
+def _fake_pipeline_result_with_content():
+    """Pipeline result that includes grammar fixes, suggested revision, and content critique."""
+    analysis = SimpleNamespace(
+        pitch=SimpleNamespace(score=8, feedback="good pitch"),
+        volume=SimpleNamespace(score=7, feedback="good volume"),
+        tempo=SimpleNamespace(score=9, estimated_wpm=140, feedback="good tempo"),
+        rhythm=SimpleNamespace(score=6, pvi=55, feedback="ok rhythm"),
+        pauses=SimpleNamespace(score=8, feedback="good pauses"),
+        to_dict=lambda: {
+            "duration": 5.0, "pitch_score": 8, "volume_score": 7,
+            "tempo_score": 9, "rhythm_score": 6, "pause_score": 8,
+            "overall_score": 7.6,
+        },
+    )
+    coach = {
+        "transcript": "I think we should probably wait",
+        "tips": ["pace yourself"],
+        "summary": "nice",
+        "grammar_issues": [
+            {"original": "he don't", "corrected": "he doesn't", "explanation": "subject/verb agreement"}
+        ],
+        "suggested_revision": "Let's wait until tomorrow.",
+        "content_feedback": {
+            "clarity": {"score": 8, "note": "easy to follow"},
+            "conciseness": {"score": 5, "note": "hedge words pad the request"},
+            "tone": {"score": 7, "note": "casual but fine"},
+            "revision_rationale": "trims hedges and tightens the recommendation",
+        },
+    }
+    from coach_pipeline import SessionResult
+    return SessionResult(
+        analysis=analysis, coach=coach,
+        provider="gemini", status="ok", error=None,
+    )
+
+
+def test_analyze_renders_content_feedback_block_in_analyze_mode(client, tmp_path, monkeypatch):
+    monkeypatch.setattr("web.routes.practice.RECORDINGS_DIR", tmp_path)
+    monkeypatch.setattr(
+        "web.routes.practice.transcode_to_wav",
+        lambda src, dst: (sf.write(dst, np.zeros(16000, dtype=np.int16), 16000, subtype="PCM_16") or dst),
+    )
+    monkeypatch.setattr(
+        "web.routes.practice.analyze_session",
+        lambda *a, **k: _fake_pipeline_result_with_content(),
+    )
+    saved = []
+    monkeypatch.setattr(
+        "web.routes.practice.save_session",
+        lambda *a, **k: (saved.append(k), 42)[1],
+    )
+
+    response = client.post(
+        "/practice/analyze",
+        data={"mode": "analyze"},
+        files={"audio": ("rec.webm", io.BytesIO(b"\x1a\x45\xdf\xa3"), "audio/webm")},
+    )
+
+    assert response.status_code == 200
+    # Content block rendered
+    assert "Polished version" in response.text
+    assert "Let&#39;s wait until tomorrow." in response.text or "Let's wait until tomorrow." in response.text
+    assert "trims hedges" in response.text
+    # Critique row
+    assert "Clarity" in response.text
+    assert "easy to follow" in response.text
+    # Grammar fix
+    assert "he doesn&#39;t" in response.text or "he doesn't" in response.text
+    # And the route saved the field
+    assert saved and saved[0]["content_feedback"] == {
+        "clarity": {"score": 8, "note": "easy to follow"},
+        "conciseness": {"score": 5, "note": "hedge words pad the request"},
+        "tone": {"score": 7, "note": "casual but fine"},
+        "revision_rationale": "trims hedges and tightens the recommendation",
+    }
+
+
+def test_analyze_hides_content_block_in_practice_mode(client, tmp_path, monkeypatch):
+    """Even if the LLM populated content_feedback, practice (fixed-prompt) mode hides it."""
+    monkeypatch.setattr("web.routes.practice.RECORDINGS_DIR", tmp_path)
+    monkeypatch.setattr(
+        "web.routes.practice.transcode_to_wav",
+        lambda src, dst: (sf.write(dst, np.zeros(16000, dtype=np.int16), 16000, subtype="PCM_16") or dst),
+    )
+    monkeypatch.setattr(
+        "web.routes.practice.analyze_session",
+        lambda *a, **k: _fake_pipeline_result_with_content(),
+    )
+    monkeypatch.setattr("web.routes.practice.save_session", lambda *a, **k: 42)
+
+    response = client.post(
+        "/practice/analyze",
+        data={"mode": "practice", "expected_text": "Let's wait until tomorrow."},
+        files={"audio": ("rec.webm", io.BytesIO(b"\x1a\x45\xdf\xa3"), "audio/webm")},
+    )
+
+    assert response.status_code == 200
+    assert "Polished version" not in response.text
+    assert "trims hedges" not in response.text

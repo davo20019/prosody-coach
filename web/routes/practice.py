@@ -200,6 +200,7 @@ async def analyze(
         ai_tips=coach.get("tips"),
         grammar_issues=coach.get("grammar_issues"),
         suggested_revision=coach.get("suggested_revision"),
+        content_feedback=coach.get("content_feedback"),
         confidence_score=coach.get("confidence_score"),
         confidence_feedback=coach.get("confidence_feedback"),
         filler_word_count=coach.get("filler_word_count"),
@@ -234,5 +235,9 @@ async def analyze(
             "error": result.error,
             "recording_name": recording_name,
             "session_id": sid,
+            "mode": mode,
+            "grammar_issues": (coach or {}).get("grammar_issues") or [],
+            "suggested_revision": (coach or {}).get("suggested_revision"),
+            "content_feedback": (coach or {}).get("content_feedback"),
         },
     )
