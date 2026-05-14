@@ -648,6 +648,54 @@ def analyze_parallel(
     return prosody, coaching
 
 
+_CONTENT_FEEDBACK_LINE = re.compile(
+    r"^\s*(CLARITY|CONCISENESS|TONE)\s*:\s*(\d+)\s*\|\s*(.+?)\s*$",
+    re.IGNORECASE,
+)
+_RATIONALE_LINE = re.compile(
+    r"^\s*RATIONALE\s*:\s*(.+?)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _parse_content_feedback(text: str) -> Optional[dict]:
+    """Parse the CONTENT_FEEDBACK section into a dict (or None).
+
+    Recognized lines:
+      CLARITY: <score> | <note>
+      CONCISENESS: <score> | <note>
+      TONE: <score> | <note>
+      RATIONALE: <single-line text>
+
+    Returns None for empty input, the literal "None", or when nothing valid
+    parses. Scores are clamped to 1..10. Unrecognized lines are silently
+    dropped (forward-compatible).
+    """
+    if not text:
+        return None
+    stripped = text.strip()
+    if not stripped or stripped.lower() == "none":
+        return None
+
+    result: dict = {}
+    for raw_line in stripped.split("\n"):
+        line = raw_line.strip()
+        if not line:
+            continue
+        m = _CONTENT_FEEDBACK_LINE.match(line)
+        if m:
+            key = m.group(1).lower()
+            score = max(1, min(10, int(m.group(2))))
+            note = m.group(3).strip()
+            result[key] = {"score": score, "note": note}
+            continue
+        r = _RATIONALE_LINE.match(line)
+        if r:
+            result["revision_rationale"] = r.group(1).strip()
+
+    return result or None
+
+
 def parse_coaching_response(response_text: str) -> CoachingResult:
     """Parse Gemini's response into structured CoachingResult."""
     sections = {
