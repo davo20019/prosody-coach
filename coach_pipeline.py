@@ -87,6 +87,7 @@ def _normalize_coaching(coaching: Any) -> dict:
         "summary": getattr(coaching, "overall_feedback", None),
         "grammar_issues": list(getattr(coaching, "grammar_issues", []) or []),
         "suggested_revision": getattr(coaching, "suggested_revision", None),
+        "content_feedback": getattr(coaching, "content_feedback", None),
         "confidence_score": getattr(coaching, "confidence_score", None),
         "confidence_feedback": getattr(coaching, "confidence_feedback", None),
         "filler_word_count": getattr(coaching, "filler_word_count", None),
@@ -132,4 +133,158 @@ def analyze_session(
         return SessionResult(
             analysis=analysis, coach=None,
             provider=provider, status="failed", error=str(exc),
+        )
+
+
+@dataclass
+class FrameworkSessionResult:
+    """Outcome of a framework practice attempt.
+
+    `analysis` (aggregate prosody) is always present. `transcript`, `structure`,
+    `per_slot_prosody`, `overall_score`, `passed` are populated when scoring
+    succeeds. `status='failed'` means scoring or transcription raised; the
+    aggregate prosody is still returned.
+    """
+    analysis: Any
+    transcript: Optional[Any]                     # local_coach.Transcript
+    structure: Optional[Any]                      # framework_scoring.FrameworkScore
+    per_slot_prosody: Optional[dict]              # {slot_id: ProsodyAnalysis | None}
+    per_slot_prosody_available: bool
+    overall_score: float
+    passed: bool
+    provider: str
+    status: str                                   # 'ok' | 'failed'
+    error: Optional[str]
+    model_answer: Optional[Any] = None            # framework_scoring.ModelAnswer or None
+
+
+def _get_transcript_for_framework(
+    audio_data: np.ndarray,
+    sample_rate: int,
+    *,
+    audio_path: Optional[Path],
+    provider: str,
+):
+    """Pick a transcript source and return a Transcript.
+
+    Policy:
+      1. whisper-server if configured (gives word timestamps).
+      2. whisper-cli if configured AND provider == 'local' (no word timestamps).
+         Skipped for Gemini provider because CLI buys nothing there.
+      3. Gemini transcription for 'gemini' provider.
+      4. Otherwise raise ConfigurationError.
+    """
+    from local_coach import (
+        is_whisper_server_configured,
+        is_whisper_cli_configured,
+        WhisperServerTranscriber,
+        WhisperCppTranscriber,
+    )
+
+    if is_whisper_server_configured():
+        if audio_path is None:
+            raise RuntimeError(
+                "whisper-server transcription requires audio_path; got None."
+            )
+        return WhisperServerTranscriber().transcribe_with_timestamps(audio_path)
+
+    if provider == "local" and is_whisper_cli_configured():
+        if audio_path is None:
+            raise RuntimeError(
+                "whisper-cli transcription requires audio_path; got None."
+            )
+        return WhisperCppTranscriber().transcribe_with_timestamps(audio_path)
+
+    if provider == "gemini":
+        from coach import gemini_transcribe
+        return gemini_transcribe(audio_data, sample_rate)
+
+    raise RuntimeError(
+        "No transcript source available. Configure LOCAL_WHISPER_SERVER_URL, "
+        "or WHISPER_MODEL + WHISPER_CPP_BIN, or use --provider gemini."
+    )
+
+
+def analyze_framework_session(
+    audio_data: np.ndarray,
+    sample_rate: int,
+    *,
+    framework: dict,
+    prompt: dict,
+    provider: str,
+    audio_path: Optional[Path],
+) -> "FrameworkSessionResult":
+    """Run a framework practice attempt: prosody + transcript + structure scoring.
+
+    Always returns a result. If structure scoring or transcription fails, the
+    aggregate prosody is still returned with status='failed'.
+    """
+    if provider not in _PROVIDERS:
+        raise ValueError(f"Unknown provider: {provider!r}")
+
+    analysis = analyze_prosody(audio_data, sample_rate, None, audio_path)
+
+    try:
+        transcript = _get_transcript_for_framework(
+            audio_data, sample_rate,
+            audio_path=audio_path, provider=provider,
+        )
+    except Exception as exc:
+        return FrameworkSessionResult(
+            analysis=analysis,
+            transcript=None, structure=None,
+            per_slot_prosody=None, per_slot_prosody_available=False,
+            overall_score=0.0, passed=False,
+            provider=provider, status="failed", error=f"transcription: {exc}",
+        )
+
+    try:
+        from framework_scoring import (
+            score_framework, compute_overall, resolve_slot_spans,
+        )
+        from analyzer import analyze_prosody_per_slot
+
+        structure = score_framework(framework, transcript, provider=provider)
+        overall, passed = compute_overall(structure, framework)
+
+        per_slot_prosody = None
+        per_slot_available = False
+        if transcript.words:
+            spans = resolve_slot_spans(structure, transcript)
+            per_slot_prosody = analyze_prosody_per_slot(audio_data, sample_rate, spans)
+            per_slot_available = True
+
+        # Model-answer generation is best-effort: a failure here must not
+        # invalidate the scoring/prosody result the learner just earned.
+        model_answer = None
+        try:
+            from framework_scoring import generate_model_answer
+            import logging
+            model_answer = generate_model_answer(
+                framework,
+                transcript.text or "",
+                (prompt or {}).get("text", ""),
+                provider=provider,
+            )
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "Model-answer generation failed: %s", exc,
+            )
+
+        return FrameworkSessionResult(
+            analysis=analysis,
+            transcript=transcript, structure=structure,
+            per_slot_prosody=per_slot_prosody,
+            per_slot_prosody_available=per_slot_available,
+            overall_score=overall, passed=passed,
+            provider=provider, status="ok", error=None,
+            model_answer=model_answer,
+        )
+    except Exception as exc:
+        return FrameworkSessionResult(
+            analysis=analysis,
+            transcript=transcript, structure=None,
+            per_slot_prosody=None, per_slot_prosody_available=False,
+            overall_score=0.0, passed=False,
+            provider=provider, status="failed", error=f"scoring: {exc}",
         )
