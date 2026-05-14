@@ -92,3 +92,134 @@ def test_case_insensitive_keys():
 def test_returns_none_when_no_lines_match():
     text = "junk\nmore junk"
     assert _parse_content_feedback(text) is None
+
+
+def test_parse_coaching_response_populates_content_feedback():
+    from coach import parse_coaching_response
+
+    response = """
+TRANSCRIPT:
+I think we should probably wait.
+
+GRAMMAR_ISSUES:
+None
+
+SUGGESTED_REVISION:
+Let's wait.
+
+CONTENT_FEEDBACK:
+CLARITY: 8 | clear point
+CONCISENESS: 5 | "probably" hedges the recommendation
+TONE: 7 | fine for casual contexts
+RATIONALE: removes hedge, makes the recommendation direct
+
+COACHING_TIPS:
+- Project more confidence.
+
+VOCAL_CONFIDENCE:
+6 | some hedging
+
+FILLER_WORDS:
+0 | None detected
+
+PRONUNCIATION_ISSUES:
+None - pronunciation was clear
+
+FLUENCY:
+8 | smooth
+
+AI_PROSODY:
+- PITCH: 7/10 | natural
+
+OVERALL:
+Good clarity, soften the hedging.
+"""
+
+    result = parse_coaching_response(response)
+    assert result.content_feedback == {
+        "clarity": {"score": 8, "note": "clear point"},
+        "conciseness": {"score": 5, "note": '"probably" hedges the recommendation'},
+        "tone": {"score": 7, "note": "fine for casual contexts"},
+        "revision_rationale": "removes hedge, makes the recommendation direct",
+    }
+
+
+def test_parse_coaching_response_content_feedback_none_when_section_absent():
+    from coach import parse_coaching_response
+
+    response = """
+TRANSCRIPT:
+hi.
+
+GRAMMAR_ISSUES:
+None
+
+SUGGESTED_REVISION:
+hi.
+
+COACHING_TIPS:
+- ok
+
+VOCAL_CONFIDENCE:
+7 | ok
+
+FILLER_WORDS:
+0 | None
+
+PRONUNCIATION_ISSUES:
+None - pronunciation was clear
+
+FLUENCY:
+7 | smooth
+
+AI_PROSODY:
+- PITCH: 7/10 | ok
+
+OVERALL:
+ok
+"""
+
+    result = parse_coaching_response(response)
+    assert result.content_feedback is None
+
+
+def test_parse_coaching_response_content_feedback_literal_none():
+    from coach import parse_coaching_response
+
+    response = """
+TRANSCRIPT:
+abc.
+
+GRAMMAR_ISSUES:
+None
+
+SUGGESTED_REVISION:
+abc.
+
+CONTENT_FEEDBACK:
+None
+
+COACHING_TIPS:
+- ok
+
+VOCAL_CONFIDENCE:
+7 | ok
+
+FILLER_WORDS:
+0 | None
+
+PRONUNCIATION_ISSUES:
+None - pronunciation was clear
+
+FLUENCY:
+7 | smooth
+
+AI_PROSODY:
+- PITCH: 7/10 | ok
+
+OVERALL:
+ok
+"""
+
+    result = parse_coaching_response(response)
+    assert result.content_feedback is None

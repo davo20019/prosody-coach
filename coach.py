@@ -702,6 +702,7 @@ def parse_coaching_response(response_text: str) -> CoachingResult:
         "TRANSCRIPT:": "",
         "GRAMMAR_ISSUES:": "",
         "SUGGESTED_REVISION:": "",
+        "CONTENT_FEEDBACK:": "",
         "COACHING_TIPS:": "",
         "VOCAL_CONFIDENCE:": "",
         "FILLER_WORDS:": "",
@@ -914,6 +915,7 @@ def parse_coaching_response(response_text: str) -> CoachingResult:
         fluency_score=fluency_score,
         fluency_feedback=fluency_feedback,
         ai_prosody=ai_prosody if ai_prosody else None,
+        content_feedback=_parse_content_feedback(sections["CONTENT_FEEDBACK:"]),
     )
 
 
