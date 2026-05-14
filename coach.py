@@ -6,6 +6,7 @@ import base64
 import tempfile
 from pathlib import Path
 from dataclasses import dataclass
+from typing import Optional
 import numpy as np
 import soundfile as sf
 
@@ -55,6 +56,9 @@ class CoachingResult:
     fluency_feedback: str = ""  # Explanation of fluency assessment
     # AI-perceived prosody analysis (from listening to audio)
     ai_prosody: dict = None  # {"pitch": {"score": 7, "feedback": "..."}, "rhythm": {...}, ...}
+    # NEW: content critique (clarity/conciseness/tone) + revision rationale.
+    # None when reading a fixed prompt or when the model omitted the section.
+    content_feedback: Optional[dict] = None
 
 
 def get_client() -> genai.Client:
@@ -126,6 +130,49 @@ def audio_to_base64(audio_data: np.ndarray, sample_rate: int, trim: bool = True)
         Path(temp_path).unlink()
 
     return base64.b64encode(audio_bytes).decode("utf-8")
+
+
+def gemini_transcribe(audio_data: np.ndarray, sample_rate: int):
+    """Transcribe audio via Gemini, returning a `Transcript` (no word timestamps).
+
+    Used by the Frameworks orchestrator when local Whisper is not configured.
+    Gemini does not emit reliable word-level timestamps, so `words` is always
+    empty and `tokens` is derived from `text.split()`. Structure scoring still
+    works because the scorer only needs `tokens`.
+    """
+    from local_coach import Transcript  # local import to avoid circular dep at module load
+
+    client = get_client()
+    audio_b64 = audio_to_base64(audio_data, sample_rate)
+    prompt = (
+        "Transcribe the speaker's English speech verbatim. "
+        "Return only the transcription with no commentary, headings, or formatting."
+    )
+    contents = [
+        types.Content(
+            role="user",
+            parts=[
+                types.Part.from_bytes(
+                    data=base64.b64decode(audio_b64),
+                    mime_type="audio/flac",
+                ),
+                types.Part.from_text(text=prompt),
+            ],
+        ),
+    ]
+    generate_config = types.GenerateContentConfig(
+        temperature=0.0,
+        max_output_tokens=2048,
+    )
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=contents,
+        config=generate_config,
+    )
+    text = extract_text_from_response(response).strip()
+    if not text:
+        raise RuntimeError("Gemini returned an empty transcript.")
+    return Transcript(text=text, tokens=text.split(), words=[])
 
 
 def analyze_with_coach(
@@ -986,6 +1033,42 @@ def display_coaching(result: CoachingResult, console) -> None:
     console.print()
 
 
+_TEXT_TOKEN_RE = re.compile(r"[A-Za-z0-9]+(?:[-'’][A-Za-z0-9]+)*(?:[.,!?;:]+)?")
+
+
+def _normalize_word_for_alignment(value: str) -> str:
+    """Normalize a word token for IPA-to-text alignment."""
+    return re.sub(r"[^a-z0-9]", "", value.lower())
+
+
+def _preserve_text_punctuation_in_word_ipa(text: str, word_ipa: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Use the final prompt text as the source of truth for visible word punctuation."""
+    if not text or not word_ipa:
+        return word_ipa
+
+    text_tokens = _TEXT_TOKEN_RE.findall(text)
+    if not text_tokens:
+        return word_ipa
+
+    aligned = []
+    token_index = 0
+    for item in word_ipa:
+        word = item.get("word", "")
+        normalized_word = _normalize_word_for_alignment(word)
+        visible_word = word
+
+        while token_index < len(text_tokens):
+            text_token = text_tokens[token_index]
+            token_index += 1
+            if _normalize_word_for_alignment(text_token) == normalized_word:
+                visible_word = text_token
+                break
+
+        aligned.append({**item, "word": visible_word})
+
+    return aligned
+
+
 def generate_tailored_prompt(weaknesses: dict, due_sounds: list[dict] = None, due_words: list[dict] = None) -> dict:
     """
     Generate a tailored practice prompt based on user's weaknesses.
@@ -996,7 +1079,8 @@ def generate_tailored_prompt(weaknesses: dict, due_sounds: list[dict] = None, du
         due_words: Optional list of mispronounced words due for review
 
     Returns:
-        Dictionary with 'text', 'focus_areas', 'difficulty', 'target_sounds', and 'target_words'
+        Dictionary with 'text', 'focus_areas', 'difficulty', 'target_sounds',
+        'target_words', 'word_ipa', and 'connected_speech'
     """
     client = get_client()
 
@@ -1076,8 +1160,13 @@ REQUIREMENTS:
 3. If rhythm/pauses are a focus, include natural pause points (commas, periods)
 4. If confidence is a focus, use declarative statements (not questions)
 5. Keep it practical - something someone might actually say
+6. WORD_IPA must be context-sensitive, not isolated dictionary pronunciations
+7. For heteronyms and stress-shift words, choose the pronunciation that matches the word's actual grammatical use in TEXT. Examples: project (noun) /ˈprɑːdʒekt/ vs project (verb) /prəˈdʒekt/; record (noun) /ˈrekərd/ vs record (verb) /rɪˈkɔːrd/; present (noun/adjective) /ˈprezənt/ vs present (verb) /prɪˈzent/
+8. If the same spelling appears twice with different usage, list it twice in WORD_IPA with the pronunciation for each occurrence
+9. CONNECTED_SPEECH must be phrase-level connected pronunciation and must not replace WORD_IPA
+10. TEXT must use visible punctuation at sentence boundaries; do not rely on line breaks or capitalization alone
 
-YOU MUST RESPOND IN THIS EXACT FORMAT (both sections required):
+YOU MUST RESPOND IN THIS EXACT FORMAT (all four sections required):
 
 TEXT:
 The practice sentences go here. Two to three complete sentences.
@@ -1085,12 +1174,60 @@ The practice sentences go here. Two to three complete sentences.
 KEY_SOUNDS:
 word1 /IPA1/, word2 /IPA2/, word3 /IPA3/
 
+WORD_IPA:
+Each word from TEXT on its own line, followed by its IPA in slashes.
+Include function words too.
+Use the pronunciation that matches the word's actual usage in the sentence.
+Do not use the first dictionary pronunciation when the word is used differently.
+
+CONNECTED_SPEECH:
+Three to five natural phrase chunks from TEXT.
+Each line must use this format: phrase /connected IPA/ | plain-English note
+The plain-English note should explain the linking, reduction, weak form, or rhythm change that helps the learner.
+Reflect natural linking and reductions for General American English where useful.
+Keep this broad and readable, not narrow phonetic transcription.
+
 EXAMPLE RESPONSE:
 TEXT:
 I think the weather will be rather warm throughout the week. Three of my brothers are gathering for a birthday celebration.
 
 KEY_SOUNDS:
 think /θɪŋk/, weather /ˈweðər/, rather /ˈræðər/, throughout /θruːˈaʊt/, three /θriː/, brothers /ˈbrʌðərz/
+
+WORD_IPA:
+I /aɪ/
+think /θɪŋk/
+the /ðə/
+weather /ˈweðər/
+will /wɪl/
+be /bi/
+rather /ˈræðər/
+warm /wɔːrm/
+throughout /θruːˈaʊt/
+the /ðə/
+week /wiːk/
+Three /θriː/
+of /əv/
+my /maɪ/
+brothers /ˈbrʌðərz/
+are /ər/
+gathering /ˈɡæðərɪŋ/
+for /fər/
+a /ə/
+birthday /ˈbɜːrθdeɪ/
+celebration /ˌseləˈbreɪʃən/
+
+CONNECTED_SPEECH:
+I think the weather /aɪ θɪŋk ðə ˈweðər/ | Keep "the" light and unstressed before "weather".
+will be rather warm /wəl bi ˈræðər wɔːrm/ | Reduce "will" toward /wəl/ so the phrase keeps moving.
+throughout the week /θruːˈaʊt ðə wiːk/ | Link the final /t/ in "throughout" into "the".
+Three of my brothers /θri əv maɪ ˈbrʌðərz/ | Say "of" quickly as a weak form between stressed words.
+are gathering for a birthday celebration /ər ˈɡæðərɪŋ fər ə ˈbɜːrθdeɪ ˌseləˈbreɪʃən/ | Keep "are", "for", and "a" light so the content words stand out.
+
+HETERONYM CHECK:
+In "The project will project confidence":
+project (noun) /ˈprɑːdʒekt/
+project (verb) /prəˈdʒekt/
 """
 
     contents = [
@@ -1102,7 +1239,7 @@ think /θɪŋk/, weather /ˈweðər/, rather /ˈræðər/, throughout /θruːˈa
 
     generate_config = types.GenerateContentConfig(
         temperature=0.7,  # Higher for more variety
-        max_output_tokens=2048,  # Enough for text + key sounds with IPA
+        max_output_tokens=3072,  # Enough for text + word IPA + connected speech
     )
 
     response = client.models.generate_content(
@@ -1113,16 +1250,22 @@ think /θɪŋk/, weather /ˈweðər/, rather /ˈræðər/, throughout /θruːˈa
 
     response_text = extract_text_from_response(response).strip()
 
-    # Parse the response to extract TEXT and KEY_SOUNDS
+    # Parse the response to extract TEXT, KEY_SOUNDS, WORD_IPA, and CONNECTED_SPEECH
     text = ""
     key_sounds = ""
+    word_ipa: list[dict[str, str]] = []
+    connected_speech: list[dict[str, str]] = []
 
     # Try to parse structured response - case insensitive search
     lines = response_text.split("\n")
     in_text_section = False
     in_key_section = False
+    in_word_ipa_section = False
+    in_connected_section = False
     text_lines = []
     key_lines = []
+    word_ipa_lines = []
+    connected_lines = []
 
     for line in lines:
         line_stripped = line.strip()
@@ -1132,6 +1275,8 @@ think /θɪŋk/, weather /ˈweðər/, rather /ˈræðər/, throughout /θruːˈa
         if line_upper.startswith("TEXT:"):
             in_text_section = True
             in_key_section = False
+            in_word_ipa_section = False
+            in_connected_section = False
             # Get content after "TEXT:" on same line
             content = line_stripped[5:].strip()
             if content:
@@ -1139,11 +1284,30 @@ think /θɪŋk/, weather /ˈweðər/, rather /ˈræðər/, throughout /θruːˈa
         elif line_upper.startswith("KEY_SOUNDS:") or line_upper.startswith("KEY SOUNDS:"):
             in_key_section = True
             in_text_section = False
+            in_word_ipa_section = False
+            in_connected_section = False
             # Get content after header on same line
             header_len = 11 if "KEY_SOUNDS:" in line_upper else 10
             content = line_stripped[header_len:].strip()
             if content:
                 key_lines.append(content)
+        elif line_upper.startswith("WORD_IPA:") or line_upper.startswith("WORD IPA:"):
+            in_word_ipa_section = True
+            in_text_section = False
+            in_key_section = False
+            in_connected_section = False
+            header_len = 9 if "WORD_IPA:" in line_upper else 9
+            content = line_stripped[header_len:].strip()
+            if content:
+                word_ipa_lines.append(content)
+        elif line_upper.startswith("CONNECTED_SPEECH:") or line_upper.startswith("CONNECTED SPEECH:"):
+            in_connected_section = True
+            in_text_section = False
+            in_key_section = False
+            in_word_ipa_section = False
+            content = line_stripped.split(":", 1)[1].strip()
+            if content:
+                connected_lines.append(content)
         elif in_text_section and line_stripped:
             # Skip placeholder lines like [Your text here]
             if not line_stripped.startswith("["):
@@ -1152,6 +1316,12 @@ think /θɪŋk/, weather /ˈweðər/, rather /ˈræðər/, throughout /θruːˈa
             # Skip placeholder lines
             if not line_stripped.startswith("[") and "/" in line_stripped:
                 key_lines.append(line_stripped)
+        elif in_word_ipa_section and line_stripped:
+            if not line_stripped.startswith("[") and "/" in line_stripped:
+                word_ipa_lines.append(line_stripped)
+        elif in_connected_section and line_stripped:
+            if not line_stripped.startswith("[") and "/" in line_stripped:
+                connected_lines.append(line_stripped)
 
     # Combine extracted content
     if text_lines:
@@ -1163,8 +1333,35 @@ think /θɪŋk/, weather /ˈweðər/, rather /ˈræðər/, throughout /θruːˈa
     if key_lines:
         key_sounds = ", ".join(key_lines)
 
+    for line in word_ipa_lines:
+        match = re.match(r"^\s*(.+?)\s*/([^/]+?)/\s*$", line)
+        if not match:
+            continue
+        word = match.group(1).strip()
+        ipa = match.group(2).strip()
+        if word and ipa:
+            word_ipa.append({"word": word, "ipa": ipa})
+
+    for line in connected_lines:
+        match = re.match(r"^\s*(.+?)\s*/([^/]+?)/\s*(?:\|\s*(.+?))?\s*$", line)
+        if not match:
+            continue
+        phrase = match.group(1).strip()
+        ipa = match.group(2).strip()
+        note = (match.group(3) or "").strip()
+        if phrase and ipa:
+            item = {"phrase": phrase, "ipa": ipa}
+            if note:
+                item["note"] = note
+            connected_speech.append(item)
+
     # Clean up text - remove any remaining section headers
-    for header in ["TEXT:", "text:", "Text:", "KEY_SOUNDS:", "KEY SOUNDS:", "key_sounds:", "key sounds:"]:
+    for header in [
+        "TEXT:", "text:", "Text:",
+        "KEY_SOUNDS:", "KEY SOUNDS:", "key_sounds:", "key sounds:",
+        "WORD_IPA:", "WORD IPA:", "word_ipa:", "word ipa:",
+        "CONNECTED_SPEECH:", "CONNECTED SPEECH:", "connected_speech:", "connected speech:",
+    ]:
         text = text.replace(header, "").strip()
 
     # Validate text ends with proper punctuation (not cut off mid-sentence)
@@ -1174,6 +1371,8 @@ think /θɪŋk/, weather /ˈweðər/, rather /ˈræðər/, throughout /θruːˈa
         if last_period > len(text) // 2:  # Only trim if we have at least half the content
             text = text[:last_period + 1]
 
+    word_ipa = _preserve_text_punctuation_in_word_ipa(text, word_ipa)
+
     return {
         "text": text,
         "key_sounds": key_sounds,
@@ -1182,6 +1381,8 @@ think /θɪŋk/, weather /ˈweðər/, rather /ˈræðər/, throughout /θruːˈa
         "id": f"tailored_{difficulty}",
         "target_sounds": target_sounds,  # For spaced repetition tracking
         "target_words": target_words,  # Specific mispronounced words to practice
+        "word_ipa": word_ipa,
+        "connected_speech": connected_speech,
     }
 
 
