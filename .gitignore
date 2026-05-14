@@ -56,3 +56,6 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Superpowers brainstorming workspace
+.superpowers/
