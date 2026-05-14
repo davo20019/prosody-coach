@@ -32,6 +32,7 @@ SESSION_COLUMN_DEFINITIONS = {
     "ai_tips": "TEXT",
     "grammar_issues": "TEXT",
     "suggested_revision": "TEXT",
+    "content_feedback": "TEXT",
     "confidence_score": "INTEGER",
     "confidence_feedback": "TEXT",
     "filler_word_count": "INTEGER",
@@ -42,6 +43,7 @@ SESSION_COLUMN_DEFINITIONS = {
     "coach_provider": "TEXT",
     "coach_status": "TEXT",
     "coach_error": "TEXT",
+    "framework_data": "TEXT",
 }
 
 
@@ -288,6 +290,27 @@ def init_db():
             )
         """)
 
+        # Framework practice spaced-repetition state (per framework + prompt).
+        # Per-attempt history lives in the `sessions` table with mode='framework'.
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS framework_prompt_progress (
+                framework_id TEXT NOT NULL,
+                prompt_id TEXT NOT NULL,
+                times_attempted INTEGER DEFAULT 0,
+                times_passed INTEGER DEFAULT 0,
+                last_score REAL,
+                last_attempted TEXT,
+                next_review TEXT,
+                interval_days REAL DEFAULT 1.0,
+                updated_at TEXT NOT NULL,
+                UNIQUE(framework_id, prompt_id)
+            )
+        """)
+        db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_framework_prompt_progress_next_review
+            ON framework_prompt_progress(next_review)
+        """)
+
 
 def save_session(
     analysis,
@@ -299,6 +322,7 @@ def save_session(
     ai_tips: Optional[list[str]] = None,
     grammar_issues: Optional[list[dict]] = None,
     suggested_revision: Optional[str] = None,
+    content_feedback: Optional[dict] = None,
     confidence_score: Optional[int] = None,
     confidence_feedback: Optional[str] = None,
     filler_word_count: Optional[int] = None,
@@ -309,6 +333,8 @@ def save_session(
     coach_provider: Optional[str] = None,
     coach_status: Optional[str] = None,
     coach_error: Optional[str] = None,
+    framework_data: Optional[dict] = None,
+    overall_score_override: Optional[float] = None,
 ) -> int:
     """
     Save an analysis session to the database.
@@ -339,7 +365,14 @@ def save_session(
     data = analysis.to_dict()
     tips_json = json.dumps(ai_tips) if ai_tips else None
     grammar_json = json.dumps(grammar_issues) if grammar_issues else None
+    content_feedback_json = json.dumps(content_feedback) if content_feedback else None
     pron_json = json.dumps(pronunciation_issues) if pronunciation_issues else None
+    framework_data_json = json.dumps(framework_data) if framework_data else None
+    overall_score_value = (
+        overall_score_override
+        if overall_score_override is not None
+        else data["overall_score"]
+    )
 
     with get_db() as db:
         cursor = db.execute(
@@ -351,12 +384,13 @@ def save_session(
                 pitch_feedback, volume_feedback, tempo_feedback,
                 rhythm_feedback, pause_feedback,
                 ai_summary, ai_tips,
-                grammar_issues, suggested_revision,
+                grammar_issues, suggested_revision, content_feedback,
                 confidence_score, confidence_feedback,
                 filler_word_count, filler_words_detail,
                 pronunciation_issues, fluency_score, fluency_feedback,
-                coach_provider, coach_status, coach_error
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                coach_provider, coach_status, coach_error,
+                framework_data
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 datetime.now().isoformat(),
@@ -366,7 +400,7 @@ def save_session(
                 data["tempo_score"],
                 data["rhythm_score"],
                 data["pause_score"],
-                data["overall_score"],
+                overall_score_value,
                 mode,
                 prompt_id,
                 transcript,
@@ -380,6 +414,7 @@ def save_session(
                 tips_json,
                 grammar_json,
                 suggested_revision,
+                content_feedback_json,
                 confidence_score,
                 confidence_feedback,
                 filler_word_count,
@@ -390,6 +425,7 @@ def save_session(
                 coach_provider,
                 coach_status,
                 coach_error,
+                framework_data_json,
             ),
         )
         session_id = cursor.lastrowid
@@ -462,7 +498,26 @@ def get_history(limit: int = 10, mode: Optional[str] = None) -> list[dict]:
                 (limit,),
             ).fetchall()
 
-        return [dict(row) for row in rows]
+        return [_decode_session_row(row) for row in rows]
+
+
+def _decode_session_row(row) -> dict:
+    """Deserialize JSON columns on a sessions row.
+
+    The columns themselves stay as text; this helper produces a dict where
+    the JSON-bearing columns are parsed into Python structures so templates
+    and route handlers don't have to know.
+    """
+    d = dict(row)
+    for key in ("framework_data",):
+        raw = d.get(key)
+        if isinstance(raw, str) and raw:
+            try:
+                d[key] = json.loads(raw)
+            except json.JSONDecodeError:
+                # Leave as-is so the bad row stays inspectable.
+                pass
+    return d
 
 
 def get_stats(days: int = 30) -> dict:
@@ -478,9 +533,10 @@ def get_stats(days: int = 30) -> dict:
     init_db()
 
     with get_db() as db:
-        # Total sessions
+        # Total sessions (exclude framework attempts: their overall_score is a
+        # structure score, not a prosody score, and would pollute averages).
         total = db.execute(
-            "SELECT COUNT(*) as count FROM sessions"
+            "SELECT COUNT(*) as count FROM sessions WHERE mode != 'framework'"
         ).fetchone()["count"]
 
         if total == 0:
@@ -491,7 +547,7 @@ def get_stats(days: int = 30) -> dict:
                 "recent_trend": None,
             }
 
-        # Average scores (all time)
+        # Average scores (all time, prosody modes only)
         averages = db.execute(
             """
             SELECT
@@ -503,15 +559,16 @@ def get_stats(days: int = 30) -> dict:
                 AVG(overall_score) as overall,
                 SUM(duration) as total_duration
             FROM sessions
+            WHERE mode != 'framework'
             """
         ).fetchone()
 
-        # Recent sessions (last N days) vs older
+        # Recent sessions (last N days) vs older — same exclusion
         recent = db.execute(
             """
             SELECT AVG(overall_score) as avg_score
             FROM sessions
-            WHERE created_at >= datetime('now', ?)
+            WHERE mode != 'framework' AND created_at >= datetime('now', ?)
             """,
             (f"-{days} days",),
         ).fetchone()
@@ -520,7 +577,7 @@ def get_stats(days: int = 30) -> dict:
             """
             SELECT AVG(overall_score) as avg_score
             FROM sessions
-            WHERE created_at < datetime('now', ?)
+            WHERE mode != 'framework' AND created_at < datetime('now', ?)
             """,
             (f"-{days} days",),
         ).fetchone()
@@ -557,13 +614,20 @@ def get_session(session_id: int) -> Optional[dict]:
 
         if row:
             result = dict(row)
-            # Parse JSON fields back to lists
+            # Parse JSON fields back to lists/dicts
             if result.get("ai_tips"):
                 result["ai_tips"] = json.loads(result["ai_tips"])
             if result.get("grammar_issues"):
                 result["grammar_issues"] = json.loads(result["grammar_issues"])
+            if result.get("content_feedback"):
+                result["content_feedback"] = json.loads(result["content_feedback"])
             if result.get("pronunciation_issues"):
                 result["pronunciation_issues"] = json.loads(result["pronunciation_issues"])
+            if result.get("framework_data"):
+                try:
+                    result["framework_data"] = json.loads(result["framework_data"])
+                except json.JSONDecodeError:
+                    pass
             return result
         return None
 
@@ -2009,3 +2073,222 @@ def should_evaluate_mastery(level: int) -> bool:
         return True
 
     return False
+
+
+# --------------------------------------------------------------------------- #
+# Framework practice
+# --------------------------------------------------------------------------- #
+
+def save_framework_attempt(
+    *,
+    analysis,
+    framework_id: str,
+    prompt_id: str,
+    structure,                       # framework_scoring.FrameworkScore
+    per_slot_prosody,                # dict[str, ProsodyAnalysis | None] | None
+    overall_score: float,
+    passed: bool,
+    transcript: Optional[str],
+    recording_path: Optional[str | Path],
+    coach_provider: str,
+    coach_status: str,               # "ok" | "failed" — matches SessionResult.status
+    coach_error: Optional[str] = None,
+) -> int:
+    """Persist a framework attempt to `sessions` and UPSERT prompt progress.
+
+    Composes save_session() with mode='framework' and overall_score_override
+    so the headline score is the structure score, then UPSERTs the
+    spaced-repetition row for this (framework_id, prompt_id) pair.
+    """
+    from framework_scoring import serialize_slot_prosody
+
+    init_db()
+
+    slots_payload = []
+    if structure is not None:
+        for s in structure.slots:
+            slots_payload.append({
+                "slot_id": s.slot_id,
+                "present": s.present,
+                "quality": s.quality,
+                "note": s.note,
+                "start_index": s.start_index,
+                "end_index": s.end_index,
+            })
+
+    if per_slot_prosody is None:
+        per_slot_payload = None
+    else:
+        per_slot_payload = {
+            sid: serialize_slot_prosody(p)
+            for sid, p in per_slot_prosody.items()
+        }
+
+    framework_data = {
+        "framework_id": framework_id,
+        "prompt_id": prompt_id,
+        "slots": slots_payload,
+        "per_slot_prosody": per_slot_payload,
+        "grammar_notes": list(getattr(structure, "grammar_notes", []) or []),
+        "cultural_note": getattr(structure, "cultural_note", "") if structure else "",
+        "overall_note": getattr(structure, "overall_note", "") if structure else "",
+        "overall": overall_score,
+        "passed": passed,
+    }
+
+    session_id = save_session(
+        analysis=analysis,
+        mode="framework",
+        prompt_id=prompt_id,
+        transcript=transcript,
+        recording_path=recording_path,
+        coach_provider=coach_provider,
+        coach_status=coach_status,
+        coach_error=coach_error,
+        framework_data=framework_data,
+        overall_score_override=overall_score,
+    )
+
+    # Ephemeral AI-generated prompts (id prefix `generated:`) are practiced
+    # once and intentionally skip spaced-repetition tracking — there's no
+    # stable id to come back to.
+    if not prompt_id.startswith("generated:"):
+        _upsert_framework_prompt_progress(framework_id, prompt_id, overall_score, passed)
+    return session_id
+
+
+def _upsert_framework_prompt_progress(
+    framework_id: str,
+    prompt_id: str,
+    score: float,
+    passed: bool,
+) -> None:
+    """Update spaced-repetition row for a (framework_id, prompt_id) pair."""
+    init_db()
+    now = datetime.now().isoformat()
+
+    with get_db() as db:
+        row = db.execute(
+            """
+            SELECT times_attempted, times_passed, interval_days
+            FROM framework_prompt_progress
+            WHERE framework_id = ? AND prompt_id = ?
+            """,
+            (framework_id, prompt_id),
+        ).fetchone()
+
+        if row is None:
+            interval = 2.0 if passed else 1.0
+            next_review = (date.today() + timedelta(days=int(interval))).isoformat()
+            db.execute(
+                """
+                INSERT INTO framework_prompt_progress
+                    (framework_id, prompt_id, times_attempted, times_passed,
+                     last_score, last_attempted, next_review,
+                     interval_days, updated_at)
+                VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    framework_id, prompt_id,
+                    1 if passed else 0,
+                    score, now, next_review,
+                    interval, now,
+                ),
+            )
+            return
+
+        prev_interval = row["interval_days"] or 1.0
+        if passed:
+            new_interval = min(prev_interval * 2, 30.0)
+        else:
+            new_interval = 1.0
+        next_review = (date.today() + timedelta(days=int(new_interval))).isoformat()
+
+        db.execute(
+            """
+            UPDATE framework_prompt_progress
+            SET times_attempted = times_attempted + 1,
+                times_passed = times_passed + ?,
+                last_score = ?,
+                last_attempted = ?,
+                next_review = ?,
+                interval_days = ?,
+                updated_at = ?
+            WHERE framework_id = ? AND prompt_id = ?
+            """,
+            (
+                1 if passed else 0,
+                score, now, next_review, new_interval, now,
+                framework_id, prompt_id,
+            ),
+        )
+
+
+def get_framework_progress(framework_id: Optional[str] = None) -> dict:
+    """Return progress rollup.
+
+    With no framework_id, returns {framework_id: {...}} for all frameworks
+    that have at least one attempt. With a framework_id, returns just that
+    framework's rollup (or an empty dict if none).
+    """
+    init_db()
+
+    with get_db() as db:
+        if framework_id:
+            rows = db.execute(
+                """
+                SELECT * FROM framework_prompt_progress
+                WHERE framework_id = ?
+                """,
+                (framework_id,),
+            ).fetchall()
+            return _summarize_framework_rows(framework_id, rows)
+
+        all_rows = db.execute(
+            "SELECT * FROM framework_prompt_progress"
+        ).fetchall()
+        grouped: dict[str, list] = {}
+        for r in all_rows:
+            grouped.setdefault(r["framework_id"], []).append(r)
+        return {fid: _summarize_framework_rows(fid, rs) for fid, rs in grouped.items()}
+
+
+def _summarize_framework_rows(framework_id: str, rows: list) -> dict:
+    if not rows:
+        return {
+            "framework_id": framework_id,
+            "total_attempts": 0,
+            "total_passes": 0,
+            "last_score": None,
+            "last_attempted": None,
+            "prompt_progress": [],
+        }
+    total_attempts = sum(r["times_attempted"] for r in rows)
+    total_passes = sum(r["times_passed"] for r in rows)
+    sorted_rows = sorted(rows, key=lambda r: r["last_attempted"] or "", reverse=True)
+    last = sorted_rows[0]
+    return {
+        "framework_id": framework_id,
+        "total_attempts": total_attempts,
+        "total_passes": total_passes,
+        "last_score": last["last_score"],
+        "last_attempted": last["last_attempted"],
+        "prompt_progress": [dict(r) for r in rows],
+    }
+
+
+def get_due_framework_prompts(limit: int = 10) -> list[dict]:
+    """Return prompt-progress rows whose next_review is on or before today."""
+    init_db()
+    today = date.today().isoformat()
+    with get_db() as db:
+        rows = db.execute(
+            """
+            SELECT * FROM framework_prompt_progress
+            WHERE next_review IS NOT NULL AND next_review <= ?
+            ORDER BY next_review ASC, times_passed ASC
+            LIMIT ?
+            """,
+            (today, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
