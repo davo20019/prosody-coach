@@ -368,6 +368,15 @@ SUGGESTED_REVISION:
 [If they made mistakes, show the correct text with pronunciation tips]
 [If they read it correctly, write: "Excellent! You read the text correctly."]
 
+CONTENT_FEEDBACK:
+[Critique the *content* of what was said, independent of pronunciation/prosody.]
+[If the speaker was reading a fixed prompt (not their own words), write: None]
+[Otherwise output each line exactly:]
+CLARITY: <1-10> | <one sentence: is the idea easy to follow?>
+CONCISENESS: <1-10> | <one sentence: any padding, repetition, or rambling?>
+TONE: <1-10> | <one sentence: register/tone appropriate? too stiff/too casual?>
+RATIONALE: <one sentence on why your SUGGESTED_REVISION is an improvement>
+
 COACHING_TIPS:
 [List 3-5 specific tips based on:]
 [1. Pronunciation errors (specific sounds or words that need work)]
@@ -447,6 +456,15 @@ GRAMMAR_ISSUES:
 SUGGESTED_REVISION:
 [Write a polished version of what was said, fixing grammar and making it more natural]
 
+CONTENT_FEEDBACK:
+[Critique the *content* of what was said, independent of pronunciation/prosody.]
+[If the speaker was reading a fixed prompt (not their own words), write: None]
+[Otherwise output each line exactly:]
+CLARITY: <1-10> | <one sentence: is the idea easy to follow?>
+CONCISENESS: <1-10> | <one sentence: any padding, repetition, or rambling?>
+TONE: <1-10> | <one sentence: register/tone appropriate? too stiff/too casual?>
+RATIONALE: <one sentence on why your SUGGESTED_REVISION is an improvement>
+
 COACHING_TIPS:
 [List 3-5 specific, actionable tips based on the prosody scores and the content. Focus on:]
 [1. The lowest prosody score area]
@@ -517,6 +535,15 @@ GRAMMAR_ISSUES:
 
 SUGGESTED_REVISION:
 [Write a polished version of what was said, fixing grammar and making it more natural]
+
+CONTENT_FEEDBACK:
+[Critique the *content* of what was said, independent of pronunciation/prosody.]
+[If the speaker was reading a fixed prompt (not their own words), write: None]
+[Otherwise output each line exactly:]
+CLARITY: <1-10> | <one sentence: is the idea easy to follow?>
+CONCISENESS: <1-10> | <one sentence: any padding, repetition, or rambling?>
+TONE: <1-10> | <one sentence: register/tone appropriate? too stiff/too casual?>
+RATIONALE: <one sentence on why your SUGGESTED_REVISION is an improvement>
 
 COACHING_TIPS:
 [List 3-5 specific, actionable tips. Focus on:]
