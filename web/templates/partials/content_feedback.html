@@ -1,0 +1,62 @@
+{# Content feedback for free-speech (analyze mode) practice.
+   Rendered only when at least one of: content_feedback, grammar_issues, suggested_revision
+   is populated and mode == "analyze". Each sub-block hides itself if its data is missing. #}
+<div class="content-feedback">
+  <h4>Content</h4>
+
+  {% if content_feedback and (content_feedback.clarity or content_feedback.conciseness or content_feedback.tone) %}
+    <table class="content-critique">
+      <tbody>
+        {% if content_feedback.clarity %}
+          <tr>
+            <th scope="row">Clarity</th>
+            <td>{{ content_feedback.clarity.score }}/10</td>
+            <td>{{ content_feedback.clarity.note }}</td>
+          </tr>
+        {% endif %}
+        {% if content_feedback.conciseness %}
+          <tr>
+            <th scope="row">Conciseness</th>
+            <td>{{ content_feedback.conciseness.score }}/10</td>
+            <td>{{ content_feedback.conciseness.note }}</td>
+          </tr>
+        {% endif %}
+        {% if content_feedback.tone %}
+          <tr>
+            <th scope="row">Tone</th>
+            <td>{{ content_feedback.tone.score }}/10</td>
+            <td>{{ content_feedback.tone.note }}</td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  {% if grammar_issues %}
+    <div class="grammar-fixes">
+      <h5>Grammar fixes</h5>
+      <ul>
+        {% for issue in grammar_issues %}
+          <li>
+            <span class="mark-bad">{{ issue.original }}</span>
+            <span class="arrow">&rarr;</span>
+            <span class="mark-good">{{ issue.corrected }}</span>
+            {% if issue.explanation %}
+              <div class="explanation muted">{{ issue.explanation }}</div>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  {% if suggested_revision %}
+    <div class="polished-version">
+      <h5>Polished version</h5>
+      <p class="polished-text">&ldquo;{{ suggested_revision }}&rdquo;</p>
+      {% if content_feedback and content_feedback.revision_rationale %}
+        <p class="muted polished-rationale"><em>Why:</em> {{ content_feedback.revision_rationale }}</p>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>

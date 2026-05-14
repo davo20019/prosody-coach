@@ -1,14 +1,3 @@
-{% macro chip(label, item) -%}
-  {% set s = item.score %}
-  {% set band = 'high' if s >= 7 else ('mid' if s >= 4 else 'low') %}
-  <div class="score-chip" data-{{ band }}>
-    <div class="label">{{ label }}</div>
-    <div class="value">{{ s }}<span class="muted" style="font-size:0.45em; margin-left:0.2em;">/10</span></div>
-    <div class="meter"><span style="width: {{ (s|int) * 10 }}%;"></span></div>
-    <div class="feedback">{{ item.feedback }}</div>
-  </div>
-{%- endmacro %}
-
 <div class="card">
   <div class="section-heading">
     <h3>Results</h3>
@@ -17,17 +6,11 @@
     {% endif %}
   </div>
 
-  <div class="score-row">
-    {{ chip('Pitch',  analysis.pitch) }}
-    {{ chip('Volume', analysis.volume) }}
-    {{ chip('Tempo',  analysis.tempo) }}
-    {{ chip('Rhythm', analysis.rhythm) }}
-    {{ chip('Pauses', analysis.pauses) }}
-  </div>
+  {% include "partials/prosody_metrics.html" %}
 
   {% if coach %}
     <div class="coach">
-      <h4>AI coach <span class="muted" style="font-style: normal; font-weight: 400;">· {{ provider }}</span></h4>
+      <h4 aria-label="AI coach via {{ provider }}">AI coach <span class="muted" style="font-style: normal; font-weight: 400;">· {{ provider }}</span></h4>
       {% if coach.transcript %}
         <p class="transcript">&ldquo;{{ coach.transcript }}&rdquo;</p>
       {% endif %}
@@ -40,13 +23,20 @@
     <div class="warning-banner" style="margin-top: 1rem;">AI coaching unavailable: {{ error or "unknown error" }}</div>
   {% endif %}
 
+  {% if mode == "analyze" and (content_feedback or grammar_issues or suggested_revision) %}
+    {% include "partials/content_feedback.html" %}
+  {% endif %}
+
   {% if recording_name %}
     <audio controls src="/audio/{{ recording_name }}"></audio>
   {% endif %}
 
-  {% if session_id and coach %}
-    <p style="margin-top: 1rem;">
-      <a href="/practice/followup/{{ session_id }}" class="btn">Try a sentence targeting this</a>
-    </p>
+  {% if session_id or recording_name %}
+    <div class="result-actions">
+      <button type="button" class="btn-secondary" data-repeat-prompt>Practice this prompt again</button>
+      {% if session_id and coach %}
+        <a href="/practice/followup/{{ session_id }}" class="btn">Try a sentence targeting this</a>
+      {% endif %}
+    </div>
   {% endif %}
 </div>
