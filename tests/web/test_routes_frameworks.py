@@ -44,7 +44,12 @@ def test_frameworks_index_shows_due_prompts(client, monkeypatch):
     assert "Nothing due right now" not in response.text
 
 
-def test_framework_run_renders_default_prompt(client):
+def test_framework_run_renders_default_prompt(client, monkeypatch):
+    # _pick_next_prompt sorts by least-recently-practiced. Force an empty
+    # progress dict so the test doesn't depend on local DB history.
+    monkeypatch.setattr(
+        "web.routes.frameworks.get_framework_progress", lambda fid=None: {}
+    )
     response = client.get("/frameworks/star")
     assert response.status_code == 200
     assert "STAR Method" in response.text
