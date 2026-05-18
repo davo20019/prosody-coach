@@ -14,6 +14,7 @@ Prosody is the "music" of speech - the patterns of rhythm, stress, and intonatio
 - **Scientific Measurements**: Uses Praat algorithms via Parselmouth (gold standard in phonetics)
 - **AI Coaching**: Transcription, grammar correction, and personalized tips via Google Gemini or a fully local Whisper + Gemma stack
 - **Practice Mode**: Built-in exercises for each prosody component
+- **Communication Frameworks**: Practice STAR, PREP, SCQA, SBI, and Story Arc answers with combined structure scoring + delivery measurement, plus an AI-generated "stronger version of your answer" annotated slot by slot
 - **Playback**: Hear your recordings to self-assess
 - **Progress Tracking**: Save recordings and track improvement over time
 
@@ -48,6 +49,7 @@ This starts a small local server bound to `127.0.0.1:7860` and opens your browse
 - Practice (with custom text or a chosen prompt)
 - Tailored Train sessions driven by your weakness history
 - Prompts browser
+- **Frameworks** (STAR, PREP, SCQA, SBI, Story Arc — structured speaking practice)
 - History (list, detail with audio playback, 30-day stats with chart)
 - Rhythm Drills (baseline, level practice, attempts)
 - Spaced-repetition Sounds and Words pages
@@ -122,18 +124,26 @@ curl -L -o "$HOME/models/whisper/ggml-base.en.bin" \
   "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
 ```
 
-Start a Gemma server with llama.cpp. On a MacBook Pro M4 with 48 GB RAM, start with Gemma 4 E4B `Q4_K_M`; try a 26B Q4 model later if you want higher-quality coaching and can tolerate slower responses.
+Download a Gemma model. The repo ships a helper for the common variants:
 
 ```bash
-llama-server -hf ggml-org/gemma-4-E4B-it-GGUF:Q4_K_M \
-  --host 127.0.0.1 --port 8080 -ngl 99
+./scripts/download-gemma4.sh e4b           # ~2.5 GB, fast scoring (recommended start)
+./scripts/download-gemma4.sh 26b           # ~16 GB, 26B MoE with 4B active params (best quality for 48 GB Macs)
+./scripts/download-gemma4.sh e2b Q8_0      # smaller still, with explicit quant
 ```
 
-(Recommended) Keep the Whisper model resident in RAM by running `whisper-server`. This avoids reloading the ~1.4 GB model on every transcription, making each run roughly 4-10x faster than the `whisper-cli` path:
+Start the local servers with the bundled scripts. Each one foregrounds the
+process (Ctrl-C to stop) and respects env-var overrides for binary, model,
+port, and context size — see the script headers for the full list.
 
 ```bash
-whisper-server -m "$HOME/models/whisper/ggml-base.en.bin" \
-  --host 127.0.0.1 --port 9000 -t 8
+# Terminal A — keep llama-server resident on port 8090 (matches LOCAL_LLM_BASE_URL).
+LLAMA_SERVER_MODEL=/path/to/your-gemma-4.gguf ./scripts/start-local-llm.sh
+
+# Terminal B — keep whisper-server resident on port 9000 (gives word timestamps,
+# which enables per-slot delivery scoring in framework practice).
+WHISPER_SERVER_MODEL="$HOME/models/whisper/ggml-base.en.bin" \
+  ./scripts/start-whisper-server.sh
 ```
 
 Configure Prosody Coach:
@@ -142,8 +152,8 @@ Configure Prosody Coach:
 export PROSODY_COACH_PROVIDER=local
 export WHISPER_CPP_BIN="$(which whisper-cli)"
 export WHISPER_MODEL="$HOME/models/whisper/ggml-base.en.bin"
-export LOCAL_LLM_BASE_URL="http://127.0.0.1:8080/v1"
-export LOCAL_LLM_MODEL="ggml-org/gemma-4-E4B-it-GGUF:Q4_K_M"
+export LOCAL_LLM_BASE_URL="http://127.0.0.1:8090/v1"
+export LOCAL_LLM_MODEL="gemma-local"   # any tag; matched against the llama-server --alias flag
 # Optional: route transcription through the running whisper-server (faster).
 # Omit this to fall back to the whisper-cli subprocess on each call.
 export LOCAL_WHISPER_SERVER_URL="http://127.0.0.1:9000"
@@ -219,6 +229,38 @@ python3 main.py practice --text "Your custom text here"
 # With playback and save
 python3 main.py practice rhythm --playback --save
 ```
+
+### Frameworks Practice
+
+Practice structured speaking with five communication frameworks: **STAR**,
+**PREP**, **SCQA**, **SBI**, and **Story Arc**. Each prompt asks you to give a
+short spoken answer (30–120 seconds). Prosody Coach then scores both:
+
+- **Structure** — an LLM tags whether each framework slot (e.g. STAR's
+  Situation, Task, Action, Result) was filled, with a quality score and a
+  short coaching note per slot. Grammar/idiomaticity flags and cultural
+  pragmatic notes (e.g. under-claiming credit in STAR) are included.
+- **Delivery** — the existing Praat-based pitch/volume/tempo/rhythm/pauses
+  analysis, both aggregate and (when word timestamps are available) per slot.
+
+```bash
+# Web UI: visit http://127.0.0.1:7860/frameworks after `prosody serve`
+prosody serve
+
+# Or via the CLI:
+python3 main.py framework star                      # first STAR prompt
+python3 main.py framework prep --prompt-id prep_2
+python3 main.py framework story --provider local
+```
+
+**Per-slot delivery requires `whisper-server`** with word timestamps
+(`response_format=verbose_json`). The CLI `whisper-cli` path does not emit
+reliable word-level timestamps, so per-slot prosody is suppressed (with a UI
+note) on that path. Aggregate prosody and structure scoring work on every
+configured backend, including Gemini-only setups.
+
+To add or extend frameworks, edit `frameworks.py` — it's a plain dict
+documented with a contributor schema. PRs welcome.
 
 ### Other Commands
 
