@@ -725,7 +725,7 @@ RHYTHM_DRILLS = {
             "pattern": "connected",
             "focus": "Consonant assimilation",
             "tip": "Final consonant blends into the next word: 'blaccat', 'biggame'. One smooth unit.",
-            "technique": "Final consonant linking",
+            "technique": "Final consonant linking: A final consonant fuses with the next word's initial consonant — 'black cat' → 'blaccat', one smooth unit.",
         },
         {
             "id": "l6_05",
@@ -734,7 +734,7 @@ RHYTHM_DRILLS = {
             "pattern": "connected",
             "focus": "Cluster simplification",
             "tip": "When consonants meet, some disappear: 'las time', 'nex day'. Natural elision.",
-            "technique": "Consonant cluster reduction",
+            "technique": "Consonant cluster reduction: Drop a consonant when three or more collide between words — 'last time' → 'las time'.",
         },
         {
             "id": "l6_06",
@@ -743,7 +743,7 @@ RHYTHM_DRILLS = {
             "pattern": "connected",
             "focus": "Extreme reductions",
             "tip": "'Did you eat' → 'Jeet' in very casual speech. 'Got to' → 'gotta'. Recognize and produce.",
-            "technique": "Informal speech patterns",
+            "technique": "Informal speech patterns: Learn to recognize (and produce) the extreme reductions natives actually say — 'Did you eat' → 'Jeet'.",
         },
         {
             "id": "l6_07",
@@ -752,7 +752,7 @@ RHYTHM_DRILLS = {
             "pattern": "connected",
             "focus": "Glide insertion",
             "tip": "Between vowels, add a glide: 'see-yit', 'go-waway'. Smooth transition between vowels.",
-            "technique": "Vowel-vowel linking",
+            "technique": "Vowel-vowel linking: Insert a tiny glide (w/y) between back-to-back vowels — 'see it' → 'see-yit', 'go away' → 'go-waway'.",
         },
         {
             "id": "l6_08",
@@ -761,7 +761,7 @@ RHYTHM_DRILLS = {
             "pattern": "connected",
             "focus": "Common casual forms",
             "tip": "These are how natives actually speak casually. 'Dunno', 'cuz', 'prolly' are real words.",
-            "technique": "Everyday reductions",
+            "technique": "Everyday reductions: Casual short forms ('dunno', 'cuz', 'prolly') are real spoken English, not lazy speech to avoid.",
         },
         {
             "id": "l6_09",
@@ -770,7 +770,7 @@ RHYTHM_DRILLS = {
             "pattern": "connected",
             "focus": "Full sentence connected speech",
             "tip": "'What do you' → 'Whaddya' is one fast unit. Practice until it flows naturally.",
-            "technique": "Phrase-level connection",
+            "technique": "Phrase-level connection: A whole question opener becomes one fast unit — 'What do you' → 'Whaddya'.",
         },
         {
             "id": "l6_10",
@@ -779,7 +779,7 @@ RHYTHM_DRILLS = {
             "pattern": "connected",
             "focus": "Multiple auxiliary reductions",
             "tip": "'would have' → 'woulduv', 'could have' → 'coulduv'. Keep the meaning, lose the extra sounds.",
-            "technique": "Perfect modal blending",
+            "technique": "Perfect modal blending: 'Would have / could have / should have' compress to 'woulduv / coulduv / shoulduv' — keep meaning, lose the extra sounds.",
         },
     ],
 }
