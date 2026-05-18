@@ -188,3 +188,179 @@ def test_local_setup_command_prints_model_setup_instructions():
     assert "brew install whisper-cpp llama.cpp" in result.stdout
     assert "WHISPER_MODEL" in result.stdout
     assert "llama-server" in result.stdout
+
+
+# --------------------------------------------------------------------------- #
+# Local LLM endpoint auto-detection
+# --------------------------------------------------------------------------- #
+
+def _make_models_response(*model_ids):
+    """Stub urlopen response returning an OpenAI-compatible /v1/models body."""
+    body = json.dumps({
+        "object": "list",
+        "data": [{"id": mid} for mid in model_ids],
+    }).encode("utf-8")
+
+    class _Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return body
+    return _Resp()
+
+
+def test_detect_local_llm_url_returns_first_endpoint_with_models():
+    """Detection must skip endpoints that respond but have no models loaded."""
+    import urllib.error
+    from local_coach import detect_local_llm_url
+
+    def fake_opener(request, timeout):
+        url = request.full_url
+        if url.endswith("11434/v1/models"):
+            # Reachable but no models — Ollama before `ollama pull`.
+            class _Empty(_make_models_response().__class__):
+                def read(self_inner):
+                    return json.dumps({"object": "list", "data": None}).encode("utf-8")
+            return _Empty()
+        if url.endswith("8080/v1/models"):
+            return _make_models_response("qwen2.5-7b-instruct")
+        # All others refused.
+        raise urllib.error.URLError("Connection refused")
+
+    best, probes = detect_local_llm_url(
+        candidates=[
+            "http://127.0.0.1:11434/v1",
+            "http://127.0.0.1:8080/v1",
+            "http://127.0.0.1:8090/v1",
+        ],
+        timeout=0.1,
+        opener=fake_opener,
+    )
+
+    assert best == "http://127.0.0.1:8080/v1"
+    # Probes preserved in candidate order so callers can render diagnostics.
+    assert [p.base_url for p in probes] == [
+        "http://127.0.0.1:11434/v1",
+        "http://127.0.0.1:8080/v1",
+        "http://127.0.0.1:8090/v1",
+    ]
+    assert probes[0].reachable and not probes[0].has_models
+    assert probes[1].reachable and probes[1].has_models
+    assert probes[1].models == ["qwen2.5-7b-instruct"]
+    assert probes[2].reachable is False
+
+
+def test_detect_local_llm_url_returns_none_when_nothing_usable():
+    """When no candidate has models loaded, best_url is None and all probes are
+    still returned for diagnostics."""
+    import urllib.error
+    from local_coach import detect_local_llm_url
+
+    def all_refused(request, timeout):
+        raise urllib.error.URLError("Connection refused")
+
+    best, probes = detect_local_llm_url(
+        candidates=["http://127.0.0.1:8090/v1"],
+        timeout=0.1, opener=all_refused,
+    )
+    assert best is None
+    assert len(probes) == 1
+    assert probes[0].reachable is False
+    assert "Connection refused" in (probes[0].error or "")
+
+
+def test_whisper_server_error_hint_when_port_is_closed(monkeypatch):
+    """When nothing is listening on the configured port, the error hint should
+    say so plainly and offer the whisper-cli fallback path."""
+    import urllib.error
+    from local_coach import LocalCoachConfig, WhisperServerTranscriber
+    import pytest
+
+    # TCP probe: nothing listening anywhere.
+    monkeypatch.setattr("local_coach._probe_tcp", lambda host, port, timeout=0.3: False)
+
+    def fake_opener(request, timeout):
+        raise urllib.error.URLError("[Errno 61] Connection refused")
+
+    config = LocalCoachConfig(
+        whisper_server_url="http://127.0.0.1:9000",
+        whisper_bin="/opt/homebrew/bin/whisper-cli",
+        whisper_model="/models/ggml-medium.en.bin",
+        llm_timeout=1,
+    )
+    # transcribe() opens the audio file before calling the opener, so we need
+    # a real path. tmp file is overkill — point at an existing file.
+    import sys
+    audio = Path(sys.executable)  # any existing file; opener is faked anyway
+    with pytest.raises(RuntimeError) as exc_info:
+        WhisperServerTranscriber(config, opener=fake_opener).transcribe(audio)
+
+    msg = str(exc_info.value)
+    assert "not reachable" in msg
+    assert "Nothing is listening on 127.0.0.1:9000" in msg
+    # Concrete fallback advice using the user's existing whisper-cli config.
+    assert "unset LOCAL_WHISPER_SERVER_URL" in msg
+    assert "ggml-medium.en.bin" in msg
+
+
+def test_whisper_server_error_hint_when_port_is_open_but_unresponsive(monkeypatch):
+    """When the port IS open but the HTTP request fails (RemoteDisconnected or
+    similar), the hint should diagnose a crashed server rather than a missing one."""
+    import urllib.error
+    from local_coach import LocalCoachConfig, WhisperServerTranscriber
+    import pytest
+
+    monkeypatch.setattr("local_coach._probe_tcp", lambda host, port, timeout=0.3: True)
+
+    def fake_opener(request, timeout):
+        # Mimic http.client.RemoteDisconnected, which arrives as OSError.
+        raise ConnectionResetError("Remote end closed connection without response")
+
+    config = LocalCoachConfig(
+        whisper_server_url="http://127.0.0.1:9000",
+        whisper_bin="/opt/homebrew/bin/whisper-cli",
+        whisper_model="/models/ggml-medium.en.bin",
+        llm_timeout=1,
+    )
+    import sys
+    audio = Path(sys.executable)
+    with pytest.raises(RuntimeError) as exc_info:
+        WhisperServerTranscriber(config, opener=fake_opener).transcribe(audio)
+
+    msg = str(exc_info.value)
+    assert "TCP port 9000 is open" in msg
+    assert "crashed mid-request" in msg or "OOM" in msg
+    # Original failure preserved.
+    assert "Remote end closed connection without response" in msg
+
+
+def test_local_llm_client_error_includes_alternative_endpoint_hint():
+    """When the configured URL refuses, the error message must point the user
+    at a reachable OpenAI-compatible alternative if one was found."""
+    import urllib.error
+    from local_coach import LocalCoachConfig, LocalLlmClient
+    import pytest
+
+    def fake_opener(request, timeout):
+        url = request.full_url
+        # The actual completion POST refuses.
+        if "chat/completions" in url:
+            raise urllib.error.URLError("Connection refused")
+        # The probe sees an alternative working server on 11434.
+        if url.endswith("11434/v1/models"):
+            return _make_models_response("llama3.2:3b")
+        raise urllib.error.URLError("Connection refused")
+
+    config = LocalCoachConfig(
+        llm_base_url="http://127.0.0.1:8090/v1",
+        llm_model="gemma-local", llm_timeout=1,
+    )
+    with pytest.raises(RuntimeError) as exc_info:
+        LocalLlmClient(config, opener=fake_opener).complete("Coach this")
+
+    msg = str(exc_info.value)
+    # Original failure still reported.
+    assert "http://127.0.0.1:8090/v1" in msg
+    # And a concrete pointer to the working alternative.
+    assert "11434" in msg
+    assert "llama3.2:3b" in msg
+    assert "LOCAL_LLM_BASE_URL=" in msg

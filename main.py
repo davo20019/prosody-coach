@@ -2212,6 +2212,106 @@ def run_rhythm_training(Prompt, rhythm_progress: dict):
 
 
 @app.command()
+def framework(
+    framework_id: str = typer.Argument(..., help="Framework id: star, prep, scqa, sbi, story."),
+    prompt_id: Optional[str] = typer.Option(None, "--prompt-id", "-p", help="Specific prompt id; default is the first prompt."),
+    provider: str = typer.Option(COACH_PROVIDER, "--provider", help="'gemini' or 'local'."),
+    save: bool = typer.Option(True, "--save/--no-save", help="Persist the attempt to history."),
+):
+    """Record a spoken answer and score it against a communication framework.
+
+    Examples:
+      prosody framework star
+      prosody framework prep --prompt-id prep_2
+      prosody framework story --provider local
+    """
+    from frameworks import FRAMEWORKS, get_framework, get_prompt
+    from coach_pipeline import analyze_framework_session
+    from storage import save_framework_attempt
+    from recorder import record_audio, save_recording
+    from config import RECORDINGS_DIR
+
+    fw = get_framework(framework_id)
+    if fw is None:
+        console.print(f"[red]Unknown framework: {framework_id}[/red]")
+        console.print(f"Available: {', '.join(FRAMEWORKS.keys())}")
+        raise typer.Exit(code=1)
+
+    prompt = get_prompt(framework_id, prompt_id) if prompt_id else None
+    if prompt is None:
+        prompt = fw["prompts"][0]
+
+    console.print(Panel(
+        f"[bold]{fw['name']}[/bold] — {fw['description']}\n\n"
+        f"[italic]{prompt['text']}[/italic]\n\n"
+        f"Structure: {' → '.join(s['name'] for s in fw['slots'])}\n"
+        f"Target: {fw['target_duration_seconds'][0]}–{fw['target_duration_seconds'][1]}s",
+        title="Frameworks practice",
+        border_style="cyan",
+    ))
+
+    audio_data, sample_rate = record_audio()
+    if audio_data is None or len(audio_data) == 0:
+        console.print("[red]No audio recorded.[/red]")
+        raise typer.Exit(code=1)
+
+    wav_path = None
+    if save:
+        from uuid import uuid4
+        wav_path = Path(RECORDINGS_DIR) / f"{uuid4().hex}.wav"
+        save_recording(audio_data, sample_rate, wav_path)
+
+    console.print("[muted]Analyzing — this takes a few seconds…[/muted]")
+    result = analyze_framework_session(
+        audio_data, sample_rate,
+        framework=fw, prompt=prompt,
+        provider=provider, audio_path=wav_path,
+    )
+
+    console.print(Panel(
+        f"Structure score: [bold]{result.overall_score:.1f}/10[/bold] "
+        f"{'[green]PASS[/green]' if result.passed else '[yellow]Keep practicing[/yellow]'}\n"
+        f"Provider: {result.provider}  ·  status: {result.status}"
+        + (f"  ·  error: {result.error}" if result.error else ""),
+        title="Result",
+        border_style="green" if result.passed else "yellow",
+    ))
+
+    if result.structure:
+        for slot_def in fw["slots"]:
+            s = result.structure.slot(slot_def["id"])
+            icon = "✓" if s and s.present == "yes" else ("~" if s and s.present == "partial" else "✗")
+            quality = f"{s.quality}/5" if s else "0/5"
+            note = s.note if s else ""
+            console.print(f"  {icon} [bold]{slot_def['name']}[/bold] ({quality}): {note}")
+        if result.structure.overall_note:
+            console.print(f"\n[italic]{result.structure.overall_note}[/italic]")
+        if result.structure.cultural_note:
+            console.print(f"[cyan]Cultural note:[/cyan] {result.structure.cultural_note}")
+        if result.structure.grammar_notes:
+            console.print("\n[cyan]Language flags:[/cyan]")
+            for note in result.structure.grammar_notes:
+                console.print(f"  - {note}")
+
+    if save and result.structure is not None:
+        save_framework_attempt(
+            analysis=result.analysis,
+            framework_id=framework_id,
+            prompt_id=prompt["id"],
+            structure=result.structure,
+            per_slot_prosody=result.per_slot_prosody,
+            overall_score=result.overall_score,
+            passed=result.passed,
+            transcript=result.transcript.text if result.transcript else None,
+            recording_path=str(wav_path) if wav_path else None,
+            coach_provider=result.provider,
+            coach_status=result.status,
+            coach_error=result.error,
+        )
+        console.print("\n[muted]Saved to history.[/muted]")
+
+
+@app.command()
 def serve(
     port: int = typer.Option(7860, "--port", help="HTTP port."),
     no_browser: bool = typer.Option(False, "--no-browser", help="Skip auto-opening the browser."),

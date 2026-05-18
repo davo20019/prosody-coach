@@ -10,19 +10,23 @@
     </div>
   </header>
 
+  <div data-ipa-scope="words">
   <div class="card">
     <div class="section-heading">
       <h3>Due for practice</h3>
-      {% if due %}<a class="btn" href="/train">Practice due words →</a>{% endif %}
+      <div class="result-actions">
+        <button type="button" class="btn-secondary" data-toggle-ipa aria-pressed="false">Hide IPA</button>
+        {% if due %}<a class="btn" href="/train">Practice due words →</a>{% endif %}
+      </div>
     </div>
     {% if due %}
       <table>
-        <thead><tr><th>Word</th><th>IPA</th><th>Related sound</th></tr></thead>
+        <thead><tr><th>Word</th><th class="ipa-col">IPA</th><th>Related sound</th></tr></thead>
         <tbody>
           {% for w in due %}
             <tr>
               <td><strong>{{ w.word }}</strong></td>
-              <td><span class="ipa">{{ w.ipa }}</span></td>
+              <td class="ipa-col"><span class="ipa">{{ w.ipa }}</span></td>
               <td>{{ w.related_sound }}</td>
             </tr>
           {% endfor %}
@@ -51,13 +55,14 @@
       <ul style="columns: 2; column-gap: 2rem; list-style: none; padding: 0;">
         {% for w in tracked %}
           <li style="margin: 0.3rem 0; break-inside: avoid;">
-            <strong>{{ w.word }}</strong>{% if w.ipa %} <span class="ipa">{{ w.ipa }}</span>{% endif %}
-            <span class="muted"> — {{ w.times_mispronounced }}×</span>
+            <strong>{{ w.word }}</strong>{% if w.ipa %} <span class="ipa ipa-inline">{{ w.ipa }}</span>{% endif %}
+            <span class="muted"> — mispronounced {{ w.times_mispronounced }}×</span>
           </li>
         {% endfor %}
       </ul>
     {% else %}
       <p class="muted">No words tracked yet.</p>
     {% endif %}
+  </div>
   </div>
 {% endblock %}

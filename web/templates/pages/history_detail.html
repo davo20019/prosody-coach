@@ -44,4 +44,44 @@
       <audio controls src="/audio/{{ recording_name }}"></audio>
     {% endif %}
   </div>
+
+  {% if session.mode == 'framework' and session.framework_data %}
+    {% set fd = session.framework_data %}
+    <div class="card" style="margin-top: 1rem;">
+      <h3>Framework: {{ fd.framework_id | upper }}</h3>
+      {% if fd.prompt_id %}
+        <p class="muted">Prompt: <strong>{{ fd.prompt_id }}</strong></p>
+      {% endif %}
+      {% if fd.overall is not none %}
+        <p>Structure score: <strong>{{ '%.1f' % fd.overall }}/10</strong>
+          {% if fd.passed %}<span class="tag sage">PASS</span>{% else %}<span class="tag apricot">Keep practicing</span>{% endif %}
+        </p>
+      {% endif %}
+      {% if fd.slots %}
+        <table>
+          <thead><tr><th>Slot</th><th>Status</th><th>Quality</th><th>Note</th></tr></thead>
+          <tbody>
+            {% for s in fd.slots %}
+              <tr>
+                <td><strong>{{ s.slot_id }}</strong></td>
+                <td>{{ s.present }}</td>
+                <td>{{ s.quality }}/5</td>
+                <td>{{ s.note }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+      {% if fd.overall_note %}
+        <p style="margin-top: 0.5rem;"><strong>Overall:</strong> {{ fd.overall_note }}</p>
+      {% endif %}
+      {% if fd.cultural_note %}
+        <p class="muted"><strong>Cultural note:</strong> {{ fd.cultural_note }}</p>
+      {% endif %}
+      {% if fd.grammar_notes %}
+        <p><strong>Language flags:</strong></p>
+        <ul>{% for n in fd.grammar_notes %}<li>{{ n }}</li>{% endfor %}</ul>
+      {% endif %}
+    </div>
+  {% endif %}
 {% endblock %}

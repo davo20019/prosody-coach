@@ -1,0 +1,50 @@
+{% set ipa_item = prompt if prompt is defined else drill if drill is defined else none %}
+{% if ipa_item and (ipa_item.ipa or ipa_item.key_sounds or ipa_item.target_words or ipa_item.target_sounds) %}
+  <details class="ipa-panel">
+    <summary>
+      <span class="label-show">Show IPA</span>
+      <span class="label-hide">Hide IPA</span>
+    </summary>
+    <div class="ipa-panel-body">
+      {% if ipa_item.ipa %}
+        <div class="ipa-line">
+          <span class="muted">Prompt</span>
+          <span class="ipa">{{ ipa_item.ipa }}</span>
+        </div>
+      {% endif %}
+
+      {% if ipa_item.key_sounds %}
+        <div class="ipa-chip-row">
+          <span class="muted">Key words</span>
+          {% for s in ipa_item.key_sounds.split(',') %}
+            <span class="tag plum"><span class="ipa">{{ s.strip() }}</span></span>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% if ipa_item.target_words %}
+        <div class="ipa-chip-row">
+          <span class="muted">Target words</span>
+          {% for w in ipa_item.target_words %}
+            <span class="tag plum">
+              <strong>{{ w.word }}</strong>
+              {% if w.ipa %}<span class="ipa">/{{ w.ipa.strip('/') }}/</span>{% endif %}
+            </span>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% if ipa_item.target_sounds %}
+        <div class="ipa-chip-row">
+          <span class="muted">Target sounds</span>
+          {% for s in ipa_item.target_sounds %}
+            <span class="tag plum">
+              <strong>{{ s.sound }}</strong>
+              {% if s.ipa %}<span class="ipa">/{{ s.ipa.strip('/') }}/</span>{% endif %}
+            </span>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+  </details>
+{% endif %}

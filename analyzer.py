@@ -975,3 +975,62 @@ def analyze_pauses(sound: parselmouth.Sound) -> PauseAnalysis:
         pauses=pauses,
         feedback=feedback
     )
+
+
+def analyze_prosody_slice(
+    audio_data: np.ndarray,
+    sample_rate: int,
+    start_s: float,
+    end_s: float,
+) -> Optional[ProsodyAnalysis]:
+    """Run prosody analysis on a slice of audio.
+
+    Returns None if the slice is shorter than MIN_SLOT_SECONDS, or if start/end
+    are out of range or inverted. Otherwise calls analyze_prosody() on the
+    sliced numpy view.
+    """
+    from config import MIN_SLOT_SECONDS
+
+    duration = len(audio_data) / sample_rate
+    start_s = max(0.0, start_s)
+    end_s = min(duration, end_s)
+    if end_s - start_s < MIN_SLOT_SECONDS:
+        return None
+
+    start_sample = int(round(start_s * sample_rate))
+    end_sample = int(round(end_s * sample_rate))
+    if end_sample <= start_sample:
+        return None
+
+    slice_data = audio_data[start_sample:end_sample]
+    try:
+        return analyze_prosody(slice_data, sample_rate)
+    except Exception as exc:
+        logger.warning("analyze_prosody_slice failed (%.2fs-%.2fs): %s", start_s, end_s, exc)
+        return None
+
+
+def analyze_prosody_per_slot(
+    audio_data: np.ndarray,
+    sample_rate: int,
+    slot_spans: dict,
+) -> dict:
+    """Run prosody analysis on each slot's audio span.
+
+    Args:
+        audio_data: full audio
+        sample_rate: Hz
+        slot_spans: {slot_id: (start_s, end_s) or None}
+
+    Returns:
+        {slot_id: ProsodyAnalysis | None} — None for spans that were missing,
+        too short, or failed to analyze.
+    """
+    results: dict = {}
+    for slot_id, span in slot_spans.items():
+        if span is None:
+            results[slot_id] = None
+            continue
+        start_s, end_s = span
+        results[slot_id] = analyze_prosody_slice(audio_data, sample_rate, start_s, end_s)
+    return results

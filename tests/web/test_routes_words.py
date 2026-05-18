@@ -6,6 +6,9 @@ def test_words_page_lists_due(client, monkeypatch):
     response = client.get("/words")
     assert response.status_code == 200
     assert "thought" in response.text
+    assert 'data-ipa-scope="words"' in response.text
+    assert 'data-toggle-ipa' in response.text
+    assert 'class="ipa-col"' in response.text
 
 
 def test_words_page_makes_practice_primary_and_manual_review_secondary(client, monkeypatch):
@@ -36,6 +39,7 @@ def test_words_page_lists_tracked(client, monkeypatch):
     assert "All tracked words" in response.text
     assert "thought" in response.text and "red" in response.text
     assert "mispronounced 3×" in response.text
+    assert 'data-ipa-scope="words"' in response.text
 
 
 def test_word_practice_post_updates_progress(client, monkeypatch):

@@ -28,10 +28,73 @@ def test_train_page_uses_tailored_prompt_generator(client, monkeypatch):
     assert response.status_code == 200
     assert "Tailored sentence to read" in response.text
     assert "/train/analyze" in response.text
+    assert 'data-repeat-inline' in response.text
+    assert 'data-repeat-inline hidden' in response.text
     assert 'name="target_sounds" value="th"' in response.text
     assert captured["weak"] == {"weakest_components": ["pitch"]}
     assert captured["sounds"] == [{"sound": "th"}]
     assert captured["words"] == [{"word": "thought"}]
+
+
+def test_train_page_renders_collapsed_ipa_panel_when_available(client, monkeypatch):
+    monkeypatch.setattr(
+        "web.routes.train.get_user_weaknesses",
+        lambda limit=10: {"weakest_components": ["rhythm"]},
+    )
+    monkeypatch.setattr("web.routes.train.get_due_sounds", lambda limit=5: [])
+    monkeypatch.setattr("web.routes.train.get_due_words", lambda limit=5: [])
+    monkeypatch.setattr(
+        "web.routes.train.generate_tailored_prompt",
+        lambda *a, **k: {
+            "id": "tailored-1",
+            "text": "The thoughtful thinker thanked them.",
+            "key_sounds": "thoughtful /ˈθɔːtfəl/, thanked /θæŋkt/",
+            "target_sounds": [{"sound": "th", "ipa": "θ"}],
+            "target_words": [{"word": "thoughtful", "ipa": "ˈθɔːtfəl"}],
+        },
+    )
+
+    response = client.get("/train")
+
+    assert response.status_code == 200
+    assert 'class="ipa-panel"' in response.text
+    assert "Show IPA" in response.text
+    assert "thoughtful /ˈθɔːtfəl/" in response.text
+    assert "Target sounds" in response.text
+
+
+def test_train_page_renders_word_ipa_below_each_word(client, monkeypatch):
+    monkeypatch.setattr(
+        "web.routes.train.get_user_weaknesses",
+        lambda limit=10: {"weakest_components": ["rhythm"]},
+    )
+    monkeypatch.setattr("web.routes.train.get_due_sounds", lambda limit=5: [])
+    monkeypatch.setattr("web.routes.train.get_due_words", lambda limit=5: [])
+    monkeypatch.setattr(
+        "web.routes.train.generate_tailored_prompt",
+        lambda *a, **k: {
+            "id": "tailored-1",
+            "text": "Although findings improved.",
+            "word_ipa": [
+                {"word": "Although", "ipa": "ɔlˈðoʊ"},
+                {"word": "findings", "ipa": "ˈfaɪndɪŋz"},
+                {"word": "improved", "ipa": "ɪmˈpruːvd"},
+            ],
+        },
+    )
+
+    response = client.get("/train")
+
+    assert response.status_code == 200
+    assert 'class="prompt-ipa-shell"' in response.text
+    assert 'data-ipa-visible="false"' in response.text
+    assert 'data-toggle-prompt-ipa' in response.text
+    assert 'class="prompt-text prompt-interlinear"' in response.text
+    assert '<span class="ipa-word">Although</span>' in response.text
+    assert '<span class="ipa ipa-pron">/ɔlˈðoʊ/</span>' in response.text
+    assert '<span class="ipa-word">findings</span>' in response.text
+    assert '<span class="ipa ipa-pron">/ˈfaɪndɪŋz/</span>' in response.text
+    assert 'class="ipa-panel"' not in response.text
 
 
 def test_train_page_falls_back_when_generation_fails(client, monkeypatch):

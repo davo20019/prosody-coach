@@ -30,7 +30,7 @@ dependencies = [
 prosody = "main:app"
 
 [tool.setuptools]
-py-modules = ["main", "analyzer", "coach", "coach_pipeline", "config", "feedback", "local_coach", "prompts", "recorder", "storage", "realtime"]
+py-modules = ["main", "analyzer", "coach", "coach_pipeline", "config", "feedback", "frameworks", "framework_scoring", "local_coach", "prompts", "recorder", "storage", "realtime"]
 
 [tool.setuptools.packages.find]
 include = ["web*"]

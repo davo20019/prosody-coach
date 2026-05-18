@@ -10,6 +10,9 @@ def test_sounds_page_lists_due_and_tracked(client, monkeypatch):
     assert response.status_code == 200
     assert "think" in response.text
     assert "red" in response.text
+    assert 'data-ipa-scope="sounds"' in response.text
+    assert 'data-toggle-ipa' in response.text
+    assert 'class="ipa-col"' in response.text
 
 
 def test_sounds_page_makes_practice_primary_and_manual_review_secondary(client, monkeypatch):

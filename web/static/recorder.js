@@ -74,12 +74,16 @@
         if (!res.ok) {
           showError(`Server error (${res.status}). See console for details.`);
           console.error(text);
+          setStatus("", false);
           return;
         }
         await swapRegionFromHtml(text);
+        setStatus("", false);
+        document.dispatchEvent(new CustomEvent("prosody:analysis-rendered"));
       } catch (err) {
         showError("Network error during upload. Is the server still running?");
         console.error(err);
+        setStatus("", false);
       }
     }
 

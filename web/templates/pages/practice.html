@@ -20,7 +20,7 @@
     {% if prompt %}
       <div class="card-hero">
         <span class="label">Read this aloud</span>
-        <p class="prompt-text">{{ prompt.text }}</p>
+        {% include "partials/prompt_text.html" %}
         <input type="hidden" name="prompt_id" value="{{ prompt.id or '' }}">
         <input type="hidden" name="expected_text" value="{{ prompt.text }}">
         {% for s in prompt.target_sounds or [] %}
@@ -28,6 +28,7 @@
         {% endfor %}
         <div class="record-row">
           <button type="button" data-record>Record</button>
+          <button type="button" class="btn-secondary" data-repeat-prompt data-repeat-inline hidden>Practice this prompt again</button>
           <span data-record-status></span>
         </div>
       </div>
@@ -37,6 +38,7 @@
         <textarea id="custom_text" name="custom_text" rows="3" placeholder="e.g. I think we should wait until tomorrow."></textarea>
         <div class="record-row">
           <button type="button" data-record>Record</button>
+          <button type="button" class="btn-secondary" data-repeat-prompt data-repeat-inline hidden>Practice this prompt again</button>
           <span data-record-status></span>
         </div>
       </div>

@@ -60,12 +60,18 @@ def test_drill_run_renders_random_drill_when_no_id(client, monkeypatch):
             "level": level,
             "focus": "stress contrast",
             "technique": "Lengthen stressed syllables",
+            "ipa": "ˈbʌ bʌ ˈbʌ",
         },
     )
     response = client.get("/drills/level/2")
     assert response.status_code == 200
     assert "BUH-buh-BUH" in response.text
     assert "/drills/attempt" in response.text
+    assert 'data-repeat-inline' in response.text
+    assert 'data-repeat-inline hidden' in response.text
+    assert 'class="ipa-panel"' in response.text
+    assert "Show IPA" in response.text
+    assert "ˈbʌ bʌ ˈbʌ" in response.text
 
 
 def test_drill_run_loads_specific_drill_when_drill_id_given(client, monkeypatch):
@@ -142,6 +148,16 @@ def _drill_progress_with_config():
                 "config": {"npvi_target": 50, "min_rhythm_score": 6}},
         },
     }
+
+
+def test_measured_pass_rule_converts_level_target_for_ioi_npvi():
+    """IOI nPVI is lower-scale than vocalic nPVI, so pass targets must shift."""
+    from web.routes.drills import _passed
+
+    prosody = _drill_prosody_stub(score=7, pvi=48)
+    prosody.rhythm.pvi_type = "ioi"
+
+    assert _passed(prosody, {"npvi_target": 55, "min_rhythm_score": 7}) is True
 
 
 def _patch_drill_pipeline(monkeypatch, tmp_path, prosody, *, rhythm_coach=None,

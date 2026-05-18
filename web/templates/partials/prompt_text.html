@@ -1,0 +1,41 @@
+{% set prompt_item = prompt if prompt is defined else drill if drill is defined else none %}
+{% if prompt_item and (prompt_item.word_ipa or prompt_item.connected_speech) %}
+  <div class="prompt-ipa-shell" data-prompt-ipa data-ipa-visible="false" data-connected-visible="false">
+    <p class="prompt-text prompt-plain">{{ prompt_item.text }}</p>
+    {% if prompt_item.word_ipa %}
+      <div class="prompt-text prompt-interlinear" aria-label="{{ prompt_item.text }}">
+        {% for item in prompt_item.word_ipa %}
+          <span class="prompt-token">
+            <span class="ipa-word">{{ item.word }}</span>
+            {% if item.ipa %}<span class="ipa ipa-pron">/{{ item.ipa.strip('/') }}/</span>{% endif %}
+          </span>
+        {% endfor %}
+      </div>
+    {% endif %}
+    {% if prompt_item.connected_speech %}
+      <div class="connected-speech" data-connected-speech>
+        <span class="connected-label">Connected speech tips</span>
+        <div class="connected-list">
+          {% for item in prompt_item.connected_speech %}
+            <span class="connected-chunk">
+              <span class="connected-phrase">{{ item.phrase }}</span>
+              {% if item.ipa %}<span class="ipa connected-pron">/{{ item.ipa.strip('/') }}/</span>{% endif %}
+              {% if item.note %}<span class="connected-note">{{ item.note }}</span>{% endif %}
+            </span>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+    <div class="prompt-pronunciation-actions">
+      {% if prompt_item.word_ipa %}
+        <button type="button" class="btn-secondary prompt-ipa-toggle" data-toggle-prompt-ipa aria-pressed="false">Show IPA</button>
+      {% endif %}
+      {% if prompt_item.connected_speech %}
+        <button type="button" class="btn-secondary prompt-ipa-toggle" data-toggle-connected-speech aria-pressed="false">Show connected speech tips</button>
+      {% endif %}
+    </div>
+  </div>
+{% elif prompt_item %}
+  <p class="prompt-text">{{ prompt_item.text }}</p>
+  {% include "partials/ipa_panel.html" %}
+{% endif %}

@@ -1,0 +1,29 @@
+{# Score-chip row for prosody metrics.
+
+   Inputs:
+     analysis — a ProsodyAnalysis object (or compatible dict-of-objects)
+                exposing .pitch, .volume, .tempo, .rhythm, .pauses, each
+                with .score and .feedback.
+
+   This is the metrics-only fragment shared by the existing analysis_card
+   partial and the framework_result partial. No card chrome, no coach text,
+   no audio player, no follow-up CTA — those belong in the parent template.
+#}
+{% macro chip(label, item) -%}
+  {% set s = item.score %}
+  {% set band = 'high' if s >= 7 else ('mid' if s >= 4 else 'low') %}
+  <div class="score-chip" data-{{ band }}>
+    <div class="label">{{ label }}</div>
+    <div class="value">{{ s }}<span class="muted" style="font-size:0.45em; margin-left:0.2em;">/10</span></div>
+    <div class="meter"><span style="width: {{ (s|int) * 10 }}%;"></span></div>
+    <div class="feedback">{{ item.feedback }}</div>
+  </div>
+{%- endmacro %}
+
+<div class="score-row" aria-label="Component scores">
+  {{ chip('Pitch',  analysis.pitch) }}
+  {{ chip('Volume', analysis.volume) }}
+  {{ chip('Tempo',  analysis.tempo) }}
+  {{ chip('Rhythm', analysis.rhythm) }}
+  {{ chip('Pauses', analysis.pauses) }}
+</div>

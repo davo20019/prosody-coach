@@ -27,13 +27,14 @@ def create_app() -> FastAPI:
     app.state.templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
     from web.routes import (
-        audio, drills, history, practice, prompts, settings, sounds, train, words,
+        audio, drills, frameworks, history, practice, prompts, settings, sounds, train, words,
     )
     app.include_router(audio.router)
     app.include_router(practice.router)
     app.include_router(prompts.router)
     app.include_router(history.router)
     app.include_router(drills.router)
+    app.include_router(frameworks.router)
     app.include_router(sounds.router)
     app.include_router(words.router)
     app.include_router(train.router)

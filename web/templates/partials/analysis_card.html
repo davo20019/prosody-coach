@@ -6,6 +6,10 @@
     {% endif %}
   </div>
 
+  {% if recording_name %}
+    <audio controls src="/audio/{{ recording_name }}"></audio>
+  {% endif %}
+
   {% include "partials/prosody_metrics.html" %}
 
   {% if coach %}
@@ -25,10 +29,6 @@
 
   {% if mode == "analyze" and (content_feedback or grammar_issues or suggested_revision) %}
     {% include "partials/content_feedback.html" %}
-  {% endif %}
-
-  {% if recording_name %}
-    <audio controls src="/audio/{{ recording_name }}"></audio>
   {% endif %}
 
   {% if session_id or recording_name %}

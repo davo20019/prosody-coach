@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% set active = 'frameworks' %}
+{% block title %}{{ framework.name }} — Prosody Coach{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div>
+      <span class="eyebrow"><a href="/frameworks">← All frameworks</a> · {{ framework.category }}</span>
+      <h2>{{ framework.name }}</h2>
+      <p class="subtitle">{{ framework.description }}</p>
+    </div>
+  </header>
+
+  <form action="/frameworks/attempt" method="post" enctype="multipart/form-data" data-recorder>
+    <div class="card-hero">
+      <span class="label">
+        Speak this prompt
+        {% if is_generated %}<span class="tag" style="margin-left: 0.5rem;">AI-generated</span>{% endif %}
+      </span>
+      <p class="prompt-text">{{ prompt.text }}</p>
+      <p class="muted" style="margin-top: 0.5rem;">
+        Structure: <strong>{{ framework.slots | map(attribute='name') | join(' → ') }}</strong>
+        · Target: {{ framework.target_duration_seconds[0] }}–{{ framework.target_duration_seconds[1] }}s
+      </p>
+      <input type="hidden" name="framework_id" value="{{ framework.id }}">
+      <input type="hidden" name="prompt_id" value="{{ prompt.id }}">
+      {# prompt_text is required for AI-generated prompts (no entry in
+         frameworks.py to look up). For curated prompts it's redundant but
+         harmless. #}
+      <input type="hidden" name="prompt_text" value="{{ prompt.text }}">
+      <div class="record-row">
+        <button type="button" data-record>Record</button>
+        <button type="button" class="btn-secondary" data-repeat-prompt data-repeat-inline hidden>Practice this prompt again</button>
+        <span data-record-status></span>
+      </div>
+    </div>
+  </form>
+
+  <div id="result-region">
+    <span class="htmx-indicator">Analyzing — this takes a few seconds…</span>
+  </div>
+
+  <div class="card" style="margin-top: 1rem;">
+    <h3>What this framework asks for</h3>
+    <ul>
+      {% for slot in framework.slots %}
+        <li><strong>{{ slot.name }}</strong> — {{ slot.description }}</li>
+      {% endfor %}
+    </ul>
+    {% if framework.when_to_use %}
+      <p class="muted">{{ framework.when_to_use }}</p>
+    {% endif %}
+  </div>
+
+  {% set any_starters = framework.slots | selectattr('starters') | list %}
+  {% if any_starters %}
+    <details class="card" style="margin-top: 1rem;">
+      <summary><strong>Starter phrases</strong> <span class="muted">— open for help getting going</span></summary>
+      <p class="muted" style="margin-top: 0.5rem;">Pick one per slot if you get stuck. Mix and match — using the same starter every time becomes robotic.</p>
+      {% for slot in framework.slots %}
+        {% if slot.starters %}
+          <div style="margin-top: 0.75rem;">
+            <strong>{{ slot.name }}</strong>
+            <ul style="margin-top: 0.25rem;">
+              {% for starter in slot.starters %}
+                <li><em>&ldquo;{{ starter }}&rdquo;</em></li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
+      {% endfor %}
+    </details>
+  {% endif %}
+
+  <script src="/static/recorder.js" defer></script>
+{% endblock %}

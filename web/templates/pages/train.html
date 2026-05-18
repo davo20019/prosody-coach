@@ -17,15 +17,7 @@
   <form action="/train/analyze" method="post" enctype="multipart/form-data" data-recorder>
     <div class="card-hero">
       <span class="label">Read this aloud</span>
-      <p class="prompt-text">{{ prompt.text }}</p>
-      {% if prompt.key_sounds %}
-        <div class="meta">
-          <span class="muted">Key sounds:</span>
-          {% for s in prompt.key_sounds.split(',') %}
-            <span class="tag plum"><span class="ipa">{{ s.strip() }}</span></span>
-          {% endfor %}
-        </div>
-      {% endif %}
+      {% include "partials/prompt_text.html" %}
       <input type="hidden" name="prompt_id" value="{{ prompt.id }}">
       <input type="hidden" name="expected_text" value="{{ prompt.text }}">
       {% for s in prompt.target_sounds or [] %}
@@ -34,6 +26,7 @@
       <input type="hidden" name="mode" value="train">
       <div class="record-row">
         <button type="button" data-record>Record</button>
+        <button type="button" class="btn-secondary" data-repeat-prompt data-repeat-inline hidden>Practice this prompt again</button>
         <span data-record-status></span>
       </div>
     </div>

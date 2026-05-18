@@ -13,7 +13,7 @@
   <form action="/drills/attempt" method="post" enctype="multipart/form-data" data-recorder>
     <div class="card-hero">
       <span class="label">Read this aloud</span>
-      <p class="prompt-text">{{ drill.text }}</p>
+      {% include "partials/prompt_text.html" %}
       {% if drill.technique %}<p class="muted" style="margin-top: 0.5rem;">Technique: {{ drill.technique }}</p>{% endif %}
       <input type="hidden" name="drill_id" value="{{ drill.id }}">
       <input type="hidden" name="level" value="{{ drill.level }}">
@@ -23,6 +23,7 @@
       <input type="hidden" name="mode" value="drill">
       <div class="record-row">
         <button type="button" data-record>Record</button>
+        <button type="button" class="btn-secondary" data-repeat-prompt data-repeat-inline hidden>Practice this prompt again</button>
         <span data-record-status></span>
       </div>
     </div>

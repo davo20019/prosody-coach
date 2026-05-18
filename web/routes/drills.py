@@ -5,8 +5,8 @@ progress storage from storage.py. Pass criterion mirrors the CLI
 (main.py:1299-1311): when AI rhythm coaching ran (Gemini path), trust
 rhythm_result.level_passed; otherwise apply the measured rule —
 prosody.rhythm.score >= level_config['min_rhythm_score'] AND nPVI >=
-level_config['npvi_target']. Both config keys are scalars in
-config.RHYTHM_LEVEL_CONFIG[level], surfaced via progress.levels[level].config.
+level_config['npvi_target']. The level target is stored on the vocalic nPVI
+scale; IOI measurements are compared to the equivalent IOI-scale target.
 Mastery evaluation (evaluate_mastery_with_ai) is out of v1 scope.
 """
 
@@ -18,7 +18,7 @@ import soundfile as sf
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 
-from analyzer import analyze_prosody
+from analyzer import analyze_prosody, rhythm_npvi_target_for_type
 from config import COACH_PROVIDER, RECORDINGS_DIR
 from prompts import get_random_rhythm_drill, get_rhythm_drill
 from storage import (
@@ -42,14 +42,16 @@ def _passed(prosody, level_config: dict, ai_rhythm_result=None) -> bool:
     the local path returns a plain CoachingResult, which has no such field.
     Use AI judgment ONLY when the field is actually present; otherwise fall
     back to the measured rule (rhythm score >= min_rhythm_score AND nPVI >=
-    npvi_target). Both config keys are scalars in RHYTHM_LEVEL_CONFIG[level].
+    the measurement-type-adjusted nPVI target).
     """
     if ai_rhythm_result is not None and hasattr(ai_rhythm_result, "level_passed"):
         return bool(ai_rhythm_result.level_passed)
     npvi_target = level_config.get("npvi_target", 45)
     min_rhythm = level_config.get("min_rhythm_score", 5)
     npvi = getattr(prosody.rhythm, "pvi", 0)
-    return prosody.rhythm.score >= min_rhythm and npvi >= npvi_target
+    pvi_type = getattr(prosody.rhythm, "pvi_type", "vocalic")
+    adjusted_target = rhythm_npvi_target_for_type(npvi_target, pvi_type)
+    return prosody.rhythm.score >= min_rhythm and npvi >= adjusted_target
 
 
 def _enrich_due(due_rows: list[dict]) -> list[dict]:

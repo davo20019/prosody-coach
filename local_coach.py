@@ -66,6 +66,55 @@ class LocalSetupCheck:
     fix: str
 
 
+@dataclass(frozen=True)
+class WordTimestamp:
+    """A single word with its audio span."""
+
+    word: str
+    start_s: float
+    end_s: float
+
+
+@dataclass(frozen=True)
+class Transcript:
+    """Transcription result.
+
+    `tokens` is always populated and drives the scoring prompt's index space.
+    `words` carries audio-aligned timestamps when the backend can emit them;
+    an empty list is a first-class state meaning "per-slot prosody unavailable."
+
+    Invariant: when `words` is non-empty, `tokens == [w.word for w in words]`.
+    """
+
+    text: str
+    tokens: list[str]
+    words: list[WordTimestamp]
+
+
+def is_whisper_server_configured(config: Optional["LocalCoachConfig"] = None) -> bool:
+    """True iff LOCAL_WHISPER_SERVER_URL is set."""
+    cfg = config or LocalCoachConfig.from_env()
+    return bool(cfg.whisper_server_url)
+
+
+def is_whisper_cli_configured(config: Optional["LocalCoachConfig"] = None) -> bool:
+    """True iff a Whisper model file exists AND the binary is on PATH or at an absolute path.
+
+    The default `LOCAL_WHISPER_BIN = "whisper-cli"` is a bare command name that
+    will exist as a string even when nothing is installed, so this performs an
+    explicit existence check.
+    """
+    cfg = config or LocalCoachConfig.from_env()
+    if not cfg.whisper_model:
+        return False
+    model_path = Path(os.path.expanduser(cfg.whisper_model))
+    if not model_path.exists():
+        return False
+    if shutil.which(cfg.whisper_bin) is not None:
+        return True
+    return Path(cfg.whisper_bin).exists()
+
+
 class WhisperCppTranscriber:
     """Transcribe audio with the whisper.cpp command-line binary."""
 
@@ -132,6 +181,17 @@ class WhisperCppTranscriber:
             raise RuntimeError("whisper.cpp returned an empty transcript.")
         return transcript
 
+    def transcribe_with_timestamps(self, audio_path: Path) -> Transcript:
+        """Transcribe and return a Transcript.
+
+        whisper.cpp's CLI does not emit reliable word-level timestamps
+        (`-oj` is segment-level, `-ojf` is subword tokens), so this path
+        always returns `words=[]`. Per-slot prosody requires `whisper-server`.
+        """
+        text = self.transcribe(audio_path)
+        tokens = text.split()
+        return Transcript(text=text, tokens=tokens, words=[])
+
 
 class WhisperServerTranscriber:
     """Transcribe audio via whisper.cpp HTTP server (keeps model resident)."""
@@ -165,8 +225,9 @@ class WhisperServerTranscriber:
         try:
             with self.opener(request, timeout=self.config.llm_timeout) as response:
                 payload = response.read()
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f"whisper-server not reachable at {url}: {exc}") from exc
+        except (urllib.error.URLError, OSError) as exc:
+            hint = _format_whisper_server_hint(self.config.whisper_server_url, self.config)
+            raise RuntimeError(f"whisper-server not reachable at {url}: {exc}{hint}") from exc
 
         raw = payload.decode("utf-8", errors="replace").strip()
         if raw.startswith("{"):
@@ -179,8 +240,113 @@ class WhisperServerTranscriber:
             raise RuntimeError("whisper-server returned an empty transcript.")
         return transcript
 
+    def transcribe_with_timestamps(self, audio_path: Path) -> Transcript:
+        """Transcribe and return a Transcript with word-level timestamps if available.
 
-def _encode_multipart_audio(audio_path: Path, boundary: str) -> bytes:
+        Requests `response_format=verbose_json` from whisper-server. When the
+        running build emits `segments[].words[]` (or top-level `words[]`),
+        tokens are derived from those words so `tokens[i] == words[i].word`
+        and indices align. Otherwise returns `words=[]` and `tokens=text.split()`.
+        """
+        audio_path = Path(audio_path)
+        if not audio_path.exists():
+            raise FileNotFoundError(f"Audio file not found: {audio_path}")
+
+        url = self.config.whisper_server_url.rstrip("/") + "/inference"
+        boundary = f"----prosody{uuid.uuid4().hex}"
+        body = _encode_multipart_audio(audio_path, boundary, response_format="verbose_json")
+        request = urllib.request.Request(
+            url,
+            data=body,
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            method="POST",
+        )
+        try:
+            with self.opener(request, timeout=self.config.llm_timeout) as response:
+                payload = response.read()
+        except (urllib.error.URLError, OSError) as exc:
+            hint = _format_whisper_server_hint(self.config.whisper_server_url, self.config)
+            raise RuntimeError(f"whisper-server not reachable at {url}: {exc}{hint}") from exc
+
+        raw = payload.decode("utf-8", errors="replace").strip()
+        if not raw.startswith("{"):
+            # Server returned plain text; no timestamps available.
+            text = _clean_whisper_text(raw)
+            if not text:
+                raise RuntimeError("whisper-server returned an empty transcript.")
+            return Transcript(text=text, tokens=text.split(), words=[])
+
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"whisper-server returned malformed JSON: {exc}") from exc
+
+        text = _clean_whisper_text(data.get("text", ""))
+        if not text:
+            raise RuntimeError("whisper-server returned an empty transcript.")
+
+        words = _extract_words_from_verbose_json(data)
+        if words:
+            tokens = [w.word for w in words]
+        else:
+            tokens = text.split()
+        return Transcript(text=text, tokens=tokens, words=words)
+
+
+def _extract_words_from_verbose_json(data: dict) -> list[WordTimestamp]:
+    """Pull word-level timestamps out of a whisper-server verbose_json payload.
+
+    Handles two shapes:
+      - top-level `words: [{word, start, end}, ...]`
+      - per-segment `segments: [{..., words: [...]}, ...]`
+
+    Returns an empty list when no word-level data is present (older
+    whisper-server builds emit segment-level info only).
+    """
+    out: list[WordTimestamp] = []
+
+    top_words = data.get("words")
+    if isinstance(top_words, list) and top_words:
+        for w in top_words:
+            parsed = _parse_word_entry(w)
+            if parsed is not None:
+                out.append(parsed)
+        return out
+
+    segments = data.get("segments")
+    if isinstance(segments, list):
+        for seg in segments:
+            seg_words = seg.get("words")
+            if isinstance(seg_words, list):
+                for w in seg_words:
+                    parsed = _parse_word_entry(w)
+                    if parsed is not None:
+                        out.append(parsed)
+    return out
+
+
+def _parse_word_entry(entry: dict) -> Optional[WordTimestamp]:
+    """Normalize a single word entry from whisper-server JSON."""
+    if not isinstance(entry, dict):
+        return None
+    word = (entry.get("word") or entry.get("text") or "").strip()
+    if not word:
+        return None
+    start = entry.get("start")
+    end = entry.get("end")
+    if start is None or end is None:
+        return None
+    try:
+        return WordTimestamp(word=word, start_s=float(start), end_s=float(end))
+    except (TypeError, ValueError):
+        return None
+
+
+def _encode_multipart_audio(
+    audio_path: Path,
+    boundary: str,
+    response_format: str = "text",
+) -> bytes:
     mime = mimetypes.guess_type(audio_path.name)[0] or "application/octet-stream"
     crlf = b"\r\n"
     parts = [
@@ -192,7 +358,7 @@ def _encode_multipart_audio(audio_path: Path, boundary: str) -> bytes:
         f"--{boundary}".encode(),
         b'Content-Disposition: form-data; name="response_format"',
         b"",
-        b"text",
+        response_format.encode(),
         f"--{boundary}--".encode(),
         b"",
     ]
@@ -215,14 +381,23 @@ class LocalLlmClient:
         prompt: str,
         temperature: float = 0.3,
         max_tokens: int = 8192,
+        chat_template_kwargs: Optional[dict] = None,
     ) -> str:
-        """Send a chat completion request to the local LLM server."""
+        """Send a chat completion request to the local LLM server.
+
+        `chat_template_kwargs` is forwarded verbatim. For Gemma 4 reasoning
+        variants (e.g. 26B-A4B) pass `{"enable_thinking": False}` — otherwise
+        the model spends its entire token budget thinking and returns an empty
+        `content`. Non-reasoning models ignore the kwarg.
+        """
         payload = {
             "model": self.config.llm_model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        if chat_template_kwargs:
+            payload["chat_template_kwargs"] = chat_template_kwargs
         request = urllib.request.Request(
             _chat_completions_url(self.config.llm_base_url),
             data=json.dumps(payload).encode("utf-8"),
@@ -234,8 +409,9 @@ class LocalLlmClient:
             with self.opener(request, timeout=self.config.llm_timeout) as response:
                 data = json.loads(response.read().decode("utf-8"))
         except urllib.error.URLError as exc:
+            hint = _format_local_llm_hint(self.config.llm_base_url, opener=self.opener)
             raise RuntimeError(
-                f"Local LLM server is not reachable at {self.config.llm_base_url}: {exc}"
+                f"Local LLM server is not reachable at {self.config.llm_base_url}: {exc}{hint}"
             ) from exc
         except json.JSONDecodeError as exc:
             raise RuntimeError("Local LLM server returned invalid JSON.") from exc
@@ -244,6 +420,216 @@ class LocalLlmClient:
             return data["choices"][0]["message"]["content"].strip()
         except (KeyError, IndexError, TypeError) as exc:
             raise RuntimeError(f"Unexpected local LLM response: {data}") from exc
+
+
+# --------------------------------------------------------------------------- #
+# Local LLM endpoint auto-detection
+# --------------------------------------------------------------------------- #
+
+CANDIDATE_LOCAL_LLM_URLS: tuple[str, ...] = (
+    "http://127.0.0.1:11434/v1",   # Ollama
+    "http://127.0.0.1:8080/v1",    # llama-server / LM Studio default
+    "http://127.0.0.1:8090/v1",    # llama-server (alt)
+    "http://127.0.0.1:1234/v1",    # LM Studio default
+    "http://127.0.0.1:5001/v1",    # koboldcpp
+)
+
+
+@dataclass
+class LocalLlmEndpointProbe:
+    """Result of probing one candidate OpenAI-compatible local LLM URL."""
+    base_url: str
+    reachable: bool       # /v1/models returned a 2xx
+    has_models: bool      # response.data is a non-empty list of models
+    models: list[str]
+    error: Optional[str]  # short human-readable reason when not usable
+
+
+def _probe_local_llm_endpoint(
+    url: str,
+    *,
+    timeout: float,
+    opener: Callable[..., object],
+) -> LocalLlmEndpointProbe:
+    """Probe one /v1/models endpoint and classify what we found."""
+    models_url = url.rstrip("/") + "/models"
+    try:
+        with opener(urllib.request.Request(models_url), timeout=timeout) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", exc)
+        return LocalLlmEndpointProbe(
+            base_url=url, reachable=False, has_models=False, models=[],
+            error=f"unreachable ({reason})",
+        )
+    except Exception as exc:  # network stack edge cases (timeouts, OS errors)
+        return LocalLlmEndpointProbe(
+            base_url=url, reachable=False, has_models=False, models=[],
+            error=f"unreachable ({exc})",
+        )
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return LocalLlmEndpointProbe(
+            base_url=url, reachable=True, has_models=False, models=[],
+            error="reachable but not OpenAI-compatible (non-JSON response)",
+        )
+
+    models: list[str] = []
+    if isinstance(data, dict):
+        items = data.get("data")
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict) and item.get("id"):
+                    models.append(str(item["id"]))
+
+    if not models:
+        return LocalLlmEndpointProbe(
+            base_url=url, reachable=True, has_models=False, models=[],
+            error="reachable but no models loaded",
+        )
+
+    return LocalLlmEndpointProbe(
+        base_url=url, reachable=True, has_models=True, models=models, error=None,
+    )
+
+
+def detect_local_llm_url(
+    candidates: Optional[list[str]] = None,
+    *,
+    timeout: float = 0.5,
+    opener: Callable[..., object] = urllib.request.urlopen,
+) -> tuple[Optional[str], list[LocalLlmEndpointProbe]]:
+    """Probe candidate URLs and return the first usable one.
+
+    "Usable" means: reachable AND at least one model is loaded. Returns
+    (best_url, all_probes). best_url is None when nothing usable was found —
+    callers can still inspect `all_probes` to surface diagnostics.
+    """
+    urls = list(candidates) if candidates is not None else list(CANDIDATE_LOCAL_LLM_URLS)
+    probes: list[LocalLlmEndpointProbe] = []
+    best: Optional[str] = None
+    for url in urls:
+        probe = _probe_local_llm_endpoint(url, timeout=timeout, opener=opener)
+        probes.append(probe)
+        if best is None and probe.has_models:
+            best = url
+    return best, probes
+
+
+# --------------------------------------------------------------------------- #
+# whisper-server diagnostics
+# --------------------------------------------------------------------------- #
+
+def _probe_tcp(host: str, port: int, *, timeout: float = 0.3) -> bool:
+    """Return True if a TCP connection to host:port succeeds within timeout."""
+    import socket
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _parse_host_port(url: str) -> Optional[tuple[str, int]]:
+    """Pull (host, port) out of a URL like http://127.0.0.1:9000 — None on failure."""
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname
+        port = parsed.port
+        if not host or not port:
+            return None
+        return host, port
+    except (ValueError, AttributeError):
+        return None
+
+
+def _format_whisper_server_hint(
+    configured_url: str,
+    config: "LocalCoachConfig",
+) -> str:
+    """Multi-line hint for whisper-server failures.
+
+    Tells the user: is the port even listening, and what their fallback options
+    are (whisper-cli if configured, or how to restart the server). Never raises.
+    """
+    try:
+        lines = ["", ""]
+        host_port = _parse_host_port(configured_url)
+        if host_port:
+            host, port = host_port
+            listening = _probe_tcp(host, port, timeout=0.3)
+            if listening:
+                lines.append(
+                    f"TCP port {port} is open, so whisper-server accepted the "
+                    "connection but dropped it before responding. The server "
+                    "process likely crashed mid-request (OOM is common with "
+                    "the medium model on long audio). Restart it and try a "
+                    "shorter clip, or switch to a smaller model (base.en/small.en)."
+                )
+            else:
+                lines.append(
+                    f"Nothing is listening on {host}:{port}. whisper-server is "
+                    "not running."
+                )
+
+        # Concrete next steps based on the user's existing config.
+        if config.whisper_bin and config.whisper_model:
+            lines.append("")
+            lines.append(
+                "You have whisper-cli configured. To fall back to it (no "
+                "word-level timestamps, per-slot delivery will be unavailable):"
+            )
+            lines.append("  unset LOCAL_WHISPER_SERVER_URL  # then restart the web app")
+        if config.whisper_model:
+            lines.append("")
+            lines.append("Or restart whisper-server:")
+            lines.append(
+                f"  whisper-server -m {config.whisper_model} --port "
+                f"{host_port[1] if host_port else 9000}"
+            )
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
+def _format_local_llm_hint(
+    configured_url: str,
+    *,
+    opener: Callable[..., object],
+) -> str:
+    """Format a multi-line hint string for the connection-refused error.
+
+    Returns "" when nothing useful was found so the original error stands alone.
+    Never raises — diagnostics must not mask the original failure.
+    """
+    try:
+        candidates = [u for u in CANDIDATE_LOCAL_LLM_URLS if u != configured_url.rstrip("/")]
+        best, probes = detect_local_llm_url(
+            candidates, timeout=0.5, opener=opener,
+        )
+    except Exception:
+        return ""
+
+    lines = ["", "", "Probed other common OpenAI-compatible local LLM ports:"]
+    for p in probes:
+        if p.has_models:
+            lines.append(f"  - {p.base_url}: reachable, models loaded: {', '.join(p.models[:3])}")
+        elif p.error:
+            lines.append(f"  - {p.base_url}: {p.error}")
+
+    if best:
+        # Pick the first model from the best probe so the env-var hint is concrete.
+        best_probe = next(p for p in probes if p.base_url == best)
+        model = best_probe.models[0] if best_probe.models else "<model>"
+        lines.append("")
+        lines.append(
+            f"To use it, set LOCAL_LLM_BASE_URL={best} "
+            f"and LOCAL_LLM_MODEL={model}, then restart."
+        )
+    return "\n".join(lines)
 
 
 class LocalCoachProvider:

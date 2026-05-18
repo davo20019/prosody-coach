@@ -205,3 +205,7 @@ GEMINI_LIVE_MODEL = "gemini-2.0-flash-exp"
 REALTIME_FEEDBACK_DELAY = 2.0  # Seconds before next drill
 REALTIME_SESSION_TIMEOUT = 900  # 15 min max session
 REALTIME_AUDIO_CHUNK_MS = 100  # Audio chunk size in milliseconds
+
+# Framework practice settings
+MIN_SLOT_SECONDS = 1.0  # Slot audio shorter than this is too short to analyze
+FRAMEWORK_PASS_THRESHOLD = 7.0  # Overall structure score (0-10) needed to "pass"

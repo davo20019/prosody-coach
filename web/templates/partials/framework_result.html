@@ -1,0 +1,130 @@
+{# Result card for a framework attempt.
+
+   Inputs:
+     framework         — framework dict from frameworks.py
+     prompt            — prompt dict
+     analysis          — aggregate ProsodyAnalysis (always present)
+     structure         — framework_scoring.FrameworkScore (None on failure)
+     per_slot_prosody  — {slot_id: ProsodyAnalysis | None} or None
+     per_slot_prosody_available — bool
+     overall_score     — float 0-10
+     passed            — bool
+     pass_label        — "PASS" | "Keep practicing"
+     transcript_text   — full transcript or None
+     recording_name    — audio file name for /audio/{name}
+     provider          — coach provider label
+     status            — "ok" | "failed"
+     error             — error message or None
+#}
+{% macro slot_status_icon(present) -%}
+  {% if present == 'yes' %}✓{% elif present == 'partial' %}⚠{% else %}✗{% endif %}
+{%- endmacro %}
+
+<div class="card">
+  <div class="section-heading">
+    <h3>Framework result</h3>
+    <span class="tag {{ 'sage' if passed else 'apricot' }}">{{ pass_label }}</span>
+  </div>
+
+  {% if status == 'failed' %}
+    <div class="warning-banner" style="margin-bottom: 1rem;">
+      Structure scoring failed: {{ error or "unknown error" }}. Prosody metrics are still shown below.
+    </div>
+  {% endif %}
+
+  {% if model_answer and model_answer.slots %}
+    {% include "partials/model_answer.html" %}
+  {% endif %}
+
+  {% if structure %}
+    <div class="card" style="margin-bottom: 1rem;">
+      <h4>Structure ({{ '%.1f' % overall_score }}/10)</h4>
+      <table>
+        <thead><tr><th>Slot</th><th>Status</th><th>Quality</th><th>Note</th></tr></thead>
+        <tbody>
+          {% for slot_def in framework.slots %}
+            {% set s = structure.slot(slot_def.id) %}
+            <tr>
+              <td><strong>{{ slot_def.name }}</strong></td>
+              <td>{{ slot_status_icon(s.present if s else 'no') }} {{ (s.present if s else 'no') | capitalize }}</td>
+              <td>{{ s.quality if s else 0 }}/5</td>
+              <td>{{ s.note if s else '' }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      {% if structure.overall_note %}
+        <p style="margin-top: 0.75rem;"><strong>Overall:</strong> {{ structure.overall_note }}</p>
+      {% endif %}
+      {% if structure.cultural_note %}
+        <p class="muted"><strong>Cultural note:</strong> {{ structure.cultural_note }}</p>
+      {% endif %}
+      {% if structure.grammar_notes %}
+        <div style="margin-top: 0.5rem;">
+          <strong>Language flags:</strong>
+          <ul>
+            {% for note in structure.grammar_notes %}<li>{{ note }}</li>{% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <h4>Aggregate delivery</h4>
+  {% include "partials/prosody_metrics.html" %}
+
+  {% if per_slot_prosody_available and per_slot_prosody %}
+    <h4 style="margin-top: 1rem;">Delivery by slot</h4>
+    <table>
+      <thead>
+        <tr><th>Slot</th><th>Duration</th><th>Tempo (WPM)</th><th>Pitch mean (Hz)</th><th>Volume mean (dB)</th></tr>
+      </thead>
+      <tbody>
+        {% for slot_def in framework.slots %}
+          {% set p = per_slot_prosody.get(slot_def.id) %}
+          <tr>
+            <td><strong>{{ slot_def.name }}</strong></td>
+            {% if p %}
+              <td>{{ '%.1f' % p.duration }}s</td>
+              <td>{{ '%.0f' % p.tempo.estimated_wpm }}</td>
+              <td>{{ '%.0f' % p.pitch.mean_hz }}</td>
+              <td>{{ '%.1f' % p.volume.mean_db }}</td>
+            {% else %}
+              <td colspan="4" class="muted">— not analyzed (slot missing or too short)</td>
+            {% endif %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% elif structure %}
+    <p class="muted" style="margin-top: 1rem;">
+      Per-slot delivery is unavailable. Run <code>whisper-server</code> with word
+      timestamps (<code>response_format=verbose_json</code>) to enable it.
+    </p>
+  {% endif %}
+
+  {% if transcript_text %}
+    <details style="margin-top: 1rem;">
+      <summary class="muted">Transcript</summary>
+      <p class="transcript">&ldquo;{{ transcript_text }}&rdquo;</p>
+    </details>
+  {% endif %}
+
+  {% if recording_name %}
+    <audio controls src="/audio/{{ recording_name }}" style="margin-top: 1rem;"></audio>
+  {% endif %}
+
+  <p class="muted" style="margin-top: 1rem; font-size: 0.85em;">Saved to history.</p>
+
+  <div class="record-row" style="margin-top: 1rem;">
+    <button type="button" class="btn-secondary" data-repeat-prompt>Practice this prompt again</button>
+    {% if prompt.id.startswith('generated:') %}
+      <a href="/frameworks/{{ framework.id }}/generate" class="btn">Try another AI prompt</a>
+      <a href="/frameworks/{{ framework.id }}" class="btn-secondary">Back to curated</a>
+    {% else %}
+      <a href="/frameworks/{{ framework.id }}" class="btn">Next prompt</a>
+      <a href="/frameworks/{{ framework.id }}/generate" class="btn-secondary">Try an AI prompt</a>
+    {% endif %}
+  </div>
+</div>

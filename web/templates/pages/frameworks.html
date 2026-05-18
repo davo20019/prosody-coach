@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% set active = 'frameworks' %}
+{% block title %}Frameworks — Prosody Coach{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div>
+      <span class="eyebrow">Structured speaking practice</span>
+      <h2>Communication frameworks</h2>
+      <p class="subtitle">Practice short, structured answers — interviews, presentations, feedback. We score the structure and measure the delivery.</p>
+    </div>
+  </header>
+
+  <div class="card">
+    <h3>Due for practice</h3>
+    {% if due %}
+      <table>
+        <thead><tr><th>Prompt</th><th>Framework</th><th>Last score</th><th>Last attempted</th><th></th></tr></thead>
+        <tbody>
+          {% for d in due %}
+            <tr>
+              <td>{{ d.prompt_text or d.prompt_id }}</td>
+              <td><span class="tag">{{ d.framework_name }}</span></td>
+              <td>{{ '%.1f' % d.last_score if d.last_score is not none else '—' }}</td>
+              <td>{{ d.last_attempted or '—' }}</td>
+              <td><a href="/frameworks/{{ d.framework_id }}?prompt_id={{ d.prompt_id }}">Practice →</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">Nothing due right now — pick a framework below to start.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Frameworks</h3>
+    <table>
+      <thead>
+        <tr><th>Framework</th><th>What it's for</th><th>Slots</th><th>Attempts</th><th>Last score</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for f in frameworks %}
+          {% set p = progress.get(f.id, {}) %}
+          <tr>
+            <td><strong>{{ f.name }}</strong><div class="muted" style="font-size: 0.85em;">{{ f.category }}</div></td>
+            <td>{{ f.description }}</td>
+            <td>{{ f.slots | map(attribute='name') | join(' → ') }}</td>
+            <td>{{ p.get('total_attempts', 0) }}</td>
+            <td>{{ '%.1f' % p['last_score'] if p.get('last_score') is not none else '—' }}</td>
+            <td><a href="/frameworks/{{ f.id }}">Practice →</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

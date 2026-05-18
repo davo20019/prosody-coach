@@ -1,0 +1,22 @@
+{# A stronger version of the learner's own transcript, slot by slot.
+
+   Inputs:
+     framework     — framework dict (uses .name for the lead copy)
+     model_answer  — framework_scoring.ModelAnswer with .slots = [(slot_id, slot_name, text), ...]
+#}
+{% if model_answer and model_answer.slots %}
+<section class="card model-answer">
+  <h4>A stronger version of what you said</h4>
+  <p class="muted model-answer__lead">
+    Same content, tightened through the {{ framework.name }} structure.
+  </p>
+  <div class="model-answer__body">
+    {% for slot_id, slot_name, text in model_answer.slots %}
+      <div class="slot-chip slot-chip--{{ loop.index }}">
+        <div class="slot-chip__label">{{ slot_name }}</div>
+        <p class="slot-chip__text">{{ text }}</p>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
