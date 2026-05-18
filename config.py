@@ -37,11 +37,21 @@ TEMPO_CONFIG = {
 }
 
 RHYTHM_CONFIG = {
-    # Pairwise Variability Index targets
+    # Vocalic nPVI targets (Grabe & Low 2002 methodology)
     # Spanish ~40, English ~60
     "spanish_typical": 40,
     "english_target": 55,
-    "english_native": 65
+    "english_native": 65,
+    # IOI nPVI runs lower than vocalic nPVI for the same speech because
+    # inter-syllable-peak intervals are more uniform than vowel
+    # durations. Shifted thresholds keep the score buckets meaningful
+    # when forced alignment is unavailable.
+    "ioi_spanish_typical": 33,
+    "ioi_english_target": 48,
+    "ioi_english_native": 58,
+    # Buffer around the syllable-/stress-timed boundary so a borderline
+    # pvi doesn't flip the classification on tiny changes.
+    "transitional_margin": 5,
 }
 
 PAUSE_CONFIG = {

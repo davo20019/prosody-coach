@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from recorder import record_audio, save_recording, load_audio, get_duration, play_audio, play_tts
-from analyzer import analyze_prosody
+from analyzer import analyze_prosody, rhythm_npvi_target_for_type
 from feedback import display_analysis, display_quick_feedback
 from coach import analyze_parallel, display_coaching
 from config import COACH_PROVIDER
@@ -1307,7 +1307,9 @@ def rhythm(
                 passed = rhythm_result.level_passed
                 ai_rhythm_score = rhythm_result.rhythm_score
             else:
-                passed = rhythm_score >= min_rhythm and npvi >= npvi_target
+                pvi_type = getattr(analysis.rhythm, "pvi_type", "vocalic")
+                adjusted_npvi_target = rhythm_npvi_target_for_type(npvi_target, pvi_type)
+                passed = rhythm_score >= min_rhythm and npvi >= adjusted_npvi_target
                 ai_rhythm_score = rhythm_score
 
             # Track issues from AI feedback
@@ -1373,7 +1375,10 @@ def rhythm(
                         border_style="yellow",
                         padding=(0, 2),
                     ))
-                console.print(f"\n[dim]nPVI: {npvi:.0f} (target: {npvi_target}+)[/dim]")
+                pvi_type = getattr(analysis.rhythm, "pvi_type", "vocalic")
+                adjusted_npvi_target = rhythm_npvi_target_for_type(npvi_target, pvi_type)
+                metric_label = "IOI nPVI" if pvi_type == "ioi" else "vocalic nPVI"
+                console.print(f"\n[dim]{metric_label}: {npvi:.0f} (target: {adjusted_npvi_target:.0f}+)[/dim]")
 
             # Update progress in database
             progress_update = update_rhythm_progress(

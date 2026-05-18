@@ -311,7 +311,7 @@ RHYTHM_DRILLS = {
             "pattern": "Ooo",
             "focus": "More first-syllable stress with reduction",
             "tip": "CA-len-dar (not ca-LEN-dar), CEL-e-brate, DES-prit, TEM-pra-chur, GEN-ral.",
-            "technique": "Natural reduction in rapid speech",
+            "technique": "Natural reduction in rapid speech: In fast speech, weak vowels get swallowed — say it the way a native would in conversation, not how it's spelled.",
         },
     ],
 
@@ -335,7 +335,7 @@ RHYTHM_DRILLS = {
             "pattern": "reduction",
             "focus": "Multiple function word reductions",
             "tip": "'gave it' → 'gavit', 'for a' → 'feruh'. Stress GAVE, HIM, DOLLAR.",
-            "technique": "Content vs function contrast",
+            "technique": "Content vs function contrast: Make content words (nouns, verbs, adjectives) loud and clear; let function words (to, the, of, a) shrink into the background.",
         },
         {
             "id": "l2_03",
@@ -344,7 +344,7 @@ RHYTHM_DRILLS = {
             "pattern": "reduction",
             "focus": "Question word reductions",
             "tip": "'Can you' → 'cunyuh', 'bank is' → 'bankiz'. Stress TELL, BANK.",
-            "technique": "Question blending",
+            "technique": "Question blending: Run the opening function words together into one quick blur so the content words pop ('Can you' → 'cunyuh').",
         },
         {
             "id": "l2_04",
@@ -353,7 +353,7 @@ RHYTHM_DRILLS = {
             "pattern": "reduction",
             "focus": "Auxiliary verb reductions",
             "tip": "'would have' → 'woulduv', 'called you' → 'caldjou'. Stress CALLED, KNOWN.",
-            "technique": "Auxiliary contraction",
+            "technique": "Auxiliary contraction: Glue helper verbs onto their neighbors — 'would have' → 'woulduv', 'should have' → 'shoulduv' — instead of pronouncing each word separately.",
         },
         {
             "id": "l2_05",
@@ -362,7 +362,7 @@ RHYTHM_DRILLS = {
             "pattern": "reduction",
             "focus": "Common phrase reductions",
             "tip": "'Do you' → 'd'yuh', 'want to' → 'wanna', 'with us' → 'withus'. Stress COME.",
-            "technique": "Phrase blending",
+            "technique": "Phrase blending: Treat a multi-word phrase as a single chunk of sound rather than separate words ('Do you want to' → 'D'yuh wanna').",
             "priority": 1,  # Essential: Very common reduction
         },
         {
@@ -372,7 +372,7 @@ RHYTHM_DRILLS = {
             "pattern": "reduction",
             "focus": "'Going to' reduction",
             "tip": "'going to' → 'gonna', 'for the' → 'fer thuh'. Stress LATE, MEETING.",
-            "technique": "Gonna/wanna patterns",
+            "technique": "Gonna/wanna patterns: Casual 'going to' → 'gonna' and 'want to' → 'wanna' — standard in spoken English, not slang to avoid.",
             "priority": 1,  # Essential: Very common reduction
         },
         {
@@ -382,7 +382,7 @@ RHYTHM_DRILLS = {
             "pattern": "reduction",
             "focus": "Present continuous reduction",
             "tip": "'What are you' → 'Whadarya', 'at the' → 'at thuh'. Stress DOING, MOMENT.",
-            "technique": "Rapid question formation",
+            "technique": "Rapid question formation: Compress the opening of a question into one fast unit so the main verb still gets the stress ('What are you doing' → 'Whadarya doing').",
         },
         {
             "id": "l2_08",
@@ -391,7 +391,7 @@ RHYTHM_DRILLS = {
             "pattern": "reduction",
             "focus": "Perfect tense reductions",
             "tip": "'I have' → 'I've', 'for an' → 'fer'n'. Stress WAITING, HOUR.",
-            "technique": "Perfect aspect blending",
+            "technique": "Perfect aspect blending: In perfect-tense forms, 'have/has/had' fuses with the subject or auxiliary ('I have been' → 'I've bin', 'should have' → 'shoulduv').",
         },
         {
             "id": "l2_09",
@@ -400,7 +400,7 @@ RHYTHM_DRILLS = {
             "pattern": "reduction",
             "focus": "'Of' reduction patterns",
             "tip": "'of' → 'uh' (like 'cupuh coffee'). The 'of' nearly disappears.",
-            "technique": "Linking through 'of'",
+            "technique": "Linking through 'of': 'Of' almost disappears between content words — reduce it to a quick 'uh' or 'uv' ('cup of coffee' → 'cupuh coffee').",
         },
         {
             "id": "l2_10",
@@ -418,7 +418,7 @@ RHYTHM_DRILLS = {
             "pattern": "reduction",
             "focus": "Extended reduction practice",
             "tip": "'was' → 'wuz', 'going to' → 'gonna', 'you' → 'yuh', 'wanted to' → 'wantedtuh', 'to the' → 'tuhthuh', 'with us' → 'withus'.",
-            "technique": "Content vs function contrast",
+            "technique": "Content vs function contrast: Make content words (nouns, verbs, adjectives) loud and clear; let function words (to, the, of, a) shrink into the background.",
             "priority": 1,
         },
         {
@@ -428,7 +428,7 @@ RHYTHM_DRILLS = {
             "pattern": "reduction",
             "focus": "Complex sentence reductions",
             "tip": "'should have' → 'shoulduv', 'them that' → 'thum thut', 'were going to' → 'wer gonna', 'for the' → 'fer thuh'.",
-            "technique": "Auxiliary contraction",
+            "technique": "Auxiliary contraction: Glue helper verbs onto their neighbors — 'would have' → 'woulduv', 'should have' → 'shoulduv' — instead of pronouncing each word separately.",
             "priority": 1,
         },
         {
@@ -438,7 +438,7 @@ RHYTHM_DRILLS = {
             "pattern": "reduction",
             "focus": "'Of' and article reductions",
             "tip": "'Can you' → 'Cunyuh', 'a cup of' → 'uh cupuh', 'and a' → 'ən uh', 'a piece of' → 'uh pieceuh'.",
-            "technique": "Linking through 'of'",
+            "technique": "Linking through 'of': 'Of' almost disappears between content words — reduce it to a quick 'uh' or 'uv' ('cup of coffee' → 'cupuh coffee').",
         },
         {
             "id": "l2_14",
@@ -447,7 +447,7 @@ RHYTHM_DRILLS = {
             "pattern": "reduction",
             "focus": "Multiple 'of' reductions",
             "tip": "'I have' → 'I've', 'to get' → 'tuh get', 'a hold of' → 'uh holduh', 'of him' → 'uhvim', 'for the' → 'fer thuh', 'couple of' → 'coupluv'.",
-            "technique": "Perfect aspect blending",
+            "technique": "Perfect aspect blending: In perfect-tense forms, 'have/has/had' fuses with the subject or auxiliary ('I have been' → 'I've bin', 'should have' → 'shoulduv').",
         },
     ],
 
@@ -471,7 +471,7 @@ RHYTHM_DRILLS = {
             "pattern": "compound",
             "focus": "Proper noun compounds",
             "tip": "WHITE House = the president's home. white HOUSE = just a white building.",
-            "technique": "Meaning determines stress",
+            "technique": "Meaning determines stress: Where you place the stress signals which meaning you intend (WHITE House = the president's; white HOUSE = any white building).",
         },
         {
             "id": "l3_03",
@@ -480,7 +480,7 @@ RHYTHM_DRILLS = {
             "pattern": "compound",
             "focus": "Single-stress compounds",
             "tip": "BLACKboard, GREENhouse, LIGHThouse, SUNflower. First element stressed.",
-            "technique": "Compound noun stress rule",
+            "technique": "Compound noun stress rule: Compound nouns (one concept made from two words) stress the FIRST element: BLACKboard, GREENhouse.",
             "priority": 1,  # Essential: Common compound words
         },
         {
@@ -490,7 +490,7 @@ RHYTHM_DRILLS = {
             "pattern": "compound",
             "focus": "Two-word compound nouns",
             "tip": "ICE cream, PEAnut butter, CREDit card, HIGH school. First word carries stress.",
-            "technique": "First-element stress",
+            "technique": "First-element stress: For two-word compound nouns, the first word carries the stress: ICE cream, HIGH school.",
         },
         {
             "id": "l3_05",
@@ -499,7 +499,7 @@ RHYTHM_DRILLS = {
             "pattern": "compound",
             "focus": "Nationality compounds",
             "tip": "FRENCH teacher = teacher from France. French TEACHER = teaches the language.",
-            "technique": "Stress placement changes meaning",
+            "technique": "Stress placement changes meaning: Same words, different stress = different meaning (FRENCH teacher = from France; French TEACHER = teaches French).",
         },
         {
             "id": "l3_06",
@@ -508,7 +508,7 @@ RHYTHM_DRILLS = {
             "pattern": "compound",
             "focus": "Phrasal verb nouns",
             "tip": "MAKEup, BREAKdown, CHECKout, TAKEoff, WORKout. Stress first syllable.",
-            "technique": "Verb→noun stress shift",
+            "technique": "Verb→noun stress shift: Phrasal verbs turned into nouns shift stress to the first syllable: make UP (verb) → MAKEup (noun).",
         },
         {
             "id": "l3_07",
@@ -517,7 +517,7 @@ RHYTHM_DRILLS = {
             "pattern": "compound",
             "focus": "Agent compounds (-er)",
             "tip": "BAby-sitter, MOvie-goer, TRUTH-teller. First element stressed.",
-            "technique": "Agent noun compounds",
+            "technique": "Agent noun compounds: '-er' compounds (baby-sitter, ice-breaker) stress the first element — the noun being acted on.",
         },
         {
             "id": "l3_08",
@@ -526,7 +526,7 @@ RHYTHM_DRILLS = {
             "pattern": "compound",
             "focus": "Store names vs descriptions",
             "tip": "TOY store (sells toys) = compound. toy POODLE (type of dog) = adj+noun.",
-            "technique": "Function-based stress",
+            "technique": "Function-based stress: Stress depends on what the phrase MEANS — a store that sells toys (TOY store) vs a toy that's a small dog (toy POODLE).",
         },
     ],
 
@@ -550,7 +550,7 @@ RHYTHM_DRILLS = {
             "pattern": "thought_groups",
             "focus": "Multiple prepositional phrases",
             "tip": "Three chunks, three slight pauses. Main stress in each chunk: MORNING, BREAKFAST, WALK.",
-            "technique": "Strategic pausing at phrase boundaries",
+            "technique": "Strategic pausing at phrase boundaries: Insert short pauses between thought groups so listeners can chunk the meaning as you go.",
         },
         {
             "id": "l4_03",
@@ -559,7 +559,7 @@ RHYTHM_DRILLS = {
             "pattern": "thought_groups",
             "focus": "Relative clauses as inserts",
             "tip": "The relative clause is parenthetical - slightly lower pitch, faster pace.",
-            "technique": "Parenthetical insertion",
+            "technique": "Parenthetical insertion: Drop relative clauses and asides into lower pitch and faster pace — like sub-text the listener can skim.",
         },
         {
             "id": "l4_04",
@@ -568,7 +568,7 @@ RHYTHM_DRILLS = {
             "pattern": "thought_groups",
             "focus": "Instruction sequences",
             "tip": "Signal words (First, Then, Finally) get their own beat. Pause after each step.",
-            "technique": "Instructional chunking",
+            "technique": "Instructional chunking: Signal words (First, Then, Finally) get their own beat, with a clear pause after each step.",
         },
         {
             "id": "l4_05",
@@ -577,7 +577,7 @@ RHYTHM_DRILLS = {
             "pattern": "thought_groups",
             "focus": "Reported thought structure",
             "tip": "'I think' is an opener. 'that we should wait' is the main thought. 'until tomorrow' is the time frame.",
-            "technique": "Topic-comment-time structure",
+            "technique": "Topic-comment-time structure: Opener | main statement | time frame — three chunks, each with its own stress peak.",
         },
         {
             "id": "l4_06",
@@ -586,7 +586,7 @@ RHYTHM_DRILLS = {
             "pattern": "thought_groups",
             "focus": "Concession structures",
             "tip": "The obstacles (rain, cold) group together. The decision is separate. Pause before 'we decided'.",
-            "technique": "Contrast marking with pauses",
+            "technique": "Contrast marking with pauses: Pause between contrasting ideas so the listener feels the shift (obstacles | decision).",
         },
         {
             "id": "l4_07",
@@ -595,7 +595,7 @@ RHYTHM_DRILLS = {
             "pattern": "thought_groups",
             "focus": "Subject-verb-object chunking",
             "tip": "Subject phrase | action | object phrase. Each is a natural chunk.",
-            "technique": "Basic SVO chunking",
+            "technique": "Basic SVO chunking: Subject phrase | verb | object phrase — three natural breath groups for any English sentence.",
         },
         {
             "id": "l4_08",
@@ -604,7 +604,7 @@ RHYTHM_DRILLS = {
             "pattern": "thought_groups",
             "focus": "Conditional politeness",
             "tip": "Condition first (longer), then request (shorter). Clear pause between them.",
-            "technique": "Politeness structures",
+            "technique": "Politeness structures: Condition first (longer), request second (shorter), with a clear pause between them.",
         },
     ],
 
@@ -628,7 +628,7 @@ RHYTHM_DRILLS = {
             "pattern": "sentence_rhythm",
             "focus": "Office announcement rhythm",
             "tip": "Key information (MEETING, MOVED, FRIDAY, THREE) gets stress. 'has been', 'to', 'at' are quick.",
-            "technique": "Information hierarchy",
+            "technique": "Information hierarchy: Stress only the high-value words; everything supporting them speeds up and softens.",
         },
         {
             "id": "l5_03",
@@ -637,7 +637,7 @@ RHYTHM_DRILLS = {
             "pattern": "sentence_rhythm",
             "focus": "Restaurant ordering",
             "tip": "Menu items (CHICKEN, RICE, SALAD) are stressed. 'I'd like to order the' is one quick chunk.",
-            "technique": "Formulaic phrase + content rhythm",
+            "technique": "Formulaic phrase + content rhythm: Bundle the fixed opener ('I'd like to order the') into one fast chunk, then put weight on the content words.",
         },
         {
             "id": "l5_04",
@@ -646,7 +646,7 @@ RHYTHM_DRILLS = {
             "pattern": "sentence_rhythm",
             "focus": "Travel announcement",
             "tip": "Critical info (TRAIN, LONDON, PLATFORM, NINE, SEVEN, FIFTEEN) is stressed. Articles are minimal.",
-            "technique": "Essential information stress",
+            "technique": "Essential information stress: Hit the words a listener actually needs — numbers, names, places — and skim the rest.",
         },
         {
             "id": "l5_05",
@@ -655,7 +655,7 @@ RHYTHM_DRILLS = {
             "pattern": "sentence_rhythm",
             "focus": "Polite disagreement",
             "tip": "SORRY softens, DON'T THINK and WORK are the core. 'that's going to' blends together.",
-            "technique": "Diplomatic rhythm",
+            "technique": "Diplomatic rhythm: Soften the start, hit the core (DON'T THINK, WORK), and blend the connectives so a refusal still sounds gentle.",
         },
         {
             "id": "l5_06",
@@ -664,7 +664,7 @@ RHYTHM_DRILLS = {
             "pattern": "sentence_rhythm",
             "focus": "Polite request",
             "tip": "'Could you' is quick, PLEASE gets slight stress, REPORT, END, DAY are peaks.",
-            "technique": "Request formula rhythm",
+            "technique": "Request formula rhythm: Quick opener ('Could you'), slight bump on PLEASE, full weight on the actual ask.",
         },
         {
             "id": "l5_07",
@@ -673,7 +673,7 @@ RHYTHM_DRILLS = {
             "pattern": "sentence_rhythm",
             "focus": "Exclamation + suggestion",
             "tip": "Exclamation rises on BEAUTIFUL. Suggestion has peaks on GO, PARK, PICNIC.",
-            "technique": "Emotional rhythm variation",
+            "technique": "Emotional rhythm variation: Vary pitch and tempo to match the feeling — high and lifted for excitement, flatter and even for neutral statements.",
         },
         {
             "id": "l5_08",
@@ -682,7 +682,7 @@ RHYTHM_DRILLS = {
             "pattern": "sentence_rhythm",
             "focus": "Duration expression",
             "tip": "'I've been' is quick, WORKING, PROJECT, THREE, MONTHS are stressed. 'now' adds emphasis.",
-            "technique": "Progressive aspect rhythm",
+            "technique": "Progressive aspect rhythm: Compress 'I've been + -ing' into one fast intro, then stress the action and the time span.",
         },
     ],
 
@@ -696,7 +696,7 @@ RHYTHM_DRILLS = {
             "pattern": "connected",
             "focus": "Gonna reduction",
             "tip": "'Going to' → 'gonna' in casual speech. 'I'm gonna go' not 'I am going to go'.",
-            "technique": "Common contractions in flow",
+            "technique": "Common contractions in flow: Use 'I'm', 'gonna', 'wanna' inside running speech — uncontracted forms sound robotic.",
             "priority": 1,  # Essential: Most common connected speech pattern
         },
         {
@@ -706,7 +706,7 @@ RHYTHM_DRILLS = {
             "pattern": "connected",
             "focus": "Question reductions",
             "tip": "'Do you want to' → 'D'yuh wanna', 'Would you' → 'Wouldja'. Super common in real speech.",
-            "technique": "Casual question forms",
+            "technique": "Casual question forms: Reduce 'Do you' → 'D'yuh' and 'Would you' → 'Wouldja' — the everyday spoken shapes natives actually use.",
             "priority": 1,  # Essential: Very common question reduction
         },
         {
@@ -716,7 +716,7 @@ RHYTHM_DRILLS = {
             "pattern": "connected",
             "focus": "Linking with 'an'",
             "tip": "The 'n' links to the vowel: 'ana-pple', 'ano-range'. No pause between words.",
-            "technique": "Consonant-vowel linking",
+            "technique": "Consonant-vowel linking: A final consonant pulls into the next word's opening vowel — 'an apple' → 'ana-pple', with no break.",
         },
         {
             "id": "l6_04",

@@ -8,7 +8,7 @@ from rich.live import Live
 from rich import box
 from typing import Optional
 
-from analyzer import ProsodyAnalysis
+from analyzer import ProsodyAnalysis, rhythm_npvi_reference_range, rhythm_npvi_target_for_type
 
 
 console = Console()
@@ -29,6 +29,23 @@ def score_to_color(score: int) -> str:
         return "yellow"
     else:
         return "red"
+
+
+def npvi_to_color(npvi: float, pvi_type: str = "vocalic") -> str:
+    """Color nPVI against the active measurement scale."""
+    green_threshold, _ = rhythm_npvi_reference_range(pvi_type)
+    yellow_threshold = rhythm_npvi_target_for_type(45, pvi_type)
+    if npvi >= green_threshold:
+        return "green"
+    if npvi >= yellow_threshold:
+        return "yellow"
+    return "red"
+
+
+def npvi_target_label(pvi_type: str = "vocalic") -> str:
+    """Human-readable target range for the active nPVI measurement scale."""
+    target, native = rhythm_npvi_reference_range(pvi_type)
+    return f"target: {target:.0f}-{native:.0f}"
 
 
 def build_word_stress_display(transcript: str, stress_pattern: str, linked: str = None) -> str:
@@ -140,7 +157,12 @@ def display_analysis(analysis: ProsodyAnalysis) -> None:
     # Rhythm row
     rhythm = analysis.rhythm
     rhythm_color = score_to_color(rhythm.score)
-    rhythm_type = "Syllable-timed" if rhythm.is_syllable_timed else "Stress-timed"
+    rhythm_type = {
+        "syllable-timed": "Syllable-timed",
+        "stress-timed": "Stress-timed",
+        "transitional": "Transitional",
+        "unknown": "Unknown",
+    }.get(rhythm.timing_class, "Syllable-timed" if rhythm.is_syllable_timed else "Stress-timed")
 
     # Build nPVI details - show both when vocalic is available
     pvi_details = f"nPVI: {rhythm.pvi:.0f}"
@@ -545,20 +567,21 @@ def display_rhythm_feedback(result, prosody, level: int, passed: bool, progress:
         # nPVI - show both vocalic and onset when available
         rhythm = prosody.rhythm
         npvi = rhythm.pvi
-        npvi_color = "green" if npvi >= 55 else "yellow" if npvi >= 45 else "red"
+        pvi_type = getattr(rhythm, "pvi_type", "vocalic")
+        npvi_color = npvi_to_color(npvi, pvi_type)
 
-        if rhythm.pvi_type == "vocalic" and rhythm.pvi_ioi is not None:
+        if pvi_type == "vocalic" and rhythm.pvi_ioi is not None:
             # Show both metrics
             table.add_row(
                 "nPVI (vocalic)",
                 f"[{npvi_color}]{rhythm.pvi_vocalic:.0f}[/{npvi_color}]",
-                "[dim]True vowel-based measurement[/dim]",
+                f"[dim]{npvi_target_label('vocalic')}[/dim]",
             )
-            ioi_color = "green" if rhythm.pvi_ioi >= 55 else "yellow" if rhythm.pvi_ioi >= 45 else "red"
+            ioi_color = npvi_to_color(rhythm.pvi_ioi, "ioi")
             table.add_row(
                 "nPVI (onset)",
                 f"[{ioi_color}]{rhythm.pvi_ioi:.0f}[/{ioi_color}]",
-                "[dim]Syllable onset approximation[/dim]",
+                f"[dim]{npvi_target_label('ioi')}[/dim]",
             )
             if rhythm.vowel_count:
                 table.add_row(
@@ -567,11 +590,12 @@ def display_rhythm_feedback(result, prosody, level: int, passed: bool, progress:
                     "[dim]Detected vowels for vocalic nPVI[/dim]",
                 )
         else:
-            # IOI only
+            # Single nPVI measurement
+            metric_label = "nPVI (onset)" if pvi_type == "ioi" else "nPVI (vocalic)"
             table.add_row(
-                "nPVI (onset)",
+                metric_label,
                 f"[{npvi_color}]{npvi:.0f}[/{npvi_color}]",
-                "[dim]target: 55-65[/dim]",
+                f"[dim]{npvi_target_label(pvi_type)}[/dim]",
             )
 
         # Stress patterns
@@ -595,11 +619,12 @@ def display_rhythm_feedback(result, prosody, level: int, passed: bool, progress:
         # Compact metrics line
         rhythm = prosody.rhythm
         npvi = rhythm.pvi
-        npvi_color = "green" if npvi >= 55 else "yellow" if npvi >= 45 else "red"
+        pvi_type = getattr(rhythm, "pvi_type", "vocalic")
+        npvi_color = npvi_to_color(npvi, pvi_type)
         stress_icon = "[green]✓[/green]" if result.stress_correct else "[red]✗[/red]"
 
         # Indicate measurement type in compact view
-        npvi_label = "nPVI" if rhythm.pvi_type == "ioi" else "nPVI (vocalic)"
+        npvi_label = "nPVI" if pvi_type == "ioi" else "nPVI (vocalic)"
         metrics_line = f"[dim]{npvi_label}: [{npvi_color}]{npvi:.0f}[/{npvi_color}]  •  Stress: {stress_icon}[/dim]"
         if level >= 2:
             reduction_icon = "[green]✓[/green]" if result.function_reduction else "[yellow]○[/yellow]"

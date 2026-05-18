@@ -193,10 +193,11 @@ def forced_align(
 
 def extract_vowel_durations(alignment: AlignmentResult) -> List[float]:
     """
-    Extract vocalic interval durations from alignment result.
+    Extract per-phoneme vowel durations from alignment result.
 
-    These are the durations needed for true vocalic nPVI calculation
-    per Grabe & Low (2002).
+    Note: For Grabe & Low (2002) vocalic nPVI, prefer
+    extract_vocalic_intervals(), which merges contiguous vowel phonemes
+    (diphthong + vowel in hiatus) into a single vocalic interval.
 
     Args:
         alignment: AlignmentResult from forced_align()
@@ -208,6 +209,55 @@ def extract_vowel_durations(alignment: AlignmentResult) -> List[float]:
         return []
 
     return alignment.vowel_durations
+
+
+def extract_vocalic_intervals(
+    alignment: AlignmentResult,
+    gap_tolerance: float = 0.02,
+) -> List[float]:
+    """
+    Extract vocalic interval durations per Grabe & Low (2002).
+
+    A vocalic interval is a contiguous stretch of vowel phonemes between
+    consonants. Adjacent vowels (V+V hiatus at word boundaries, e.g.
+    "go on", "see it") are merged into a single interval and their
+    durations summed.
+
+    Args:
+        alignment: AlignmentResult from forced_align()
+        gap_tolerance: Maximum gap (seconds) between vowels to still
+            consider them contiguous. Accounts for minor alignment
+            jitter or short silences from the aligner.
+
+    Returns:
+        List of vocalic interval durations in seconds
+    """
+    if not alignment.alignment_successful or not alignment.phonemes:
+        return []
+
+    intervals: List[float] = []
+    current_start: Optional[float] = None
+    current_end: Optional[float] = None
+
+    for phoneme in alignment.phonemes:
+        if phoneme.is_vowel:
+            if current_end is not None and (phoneme.start - current_end) <= gap_tolerance:
+                current_end = phoneme.end
+            else:
+                if current_start is not None:
+                    intervals.append(current_end - current_start)
+                current_start = phoneme.start
+                current_end = phoneme.end
+        else:
+            if current_start is not None:
+                intervals.append(current_end - current_start)
+                current_start = None
+                current_end = None
+
+    if current_start is not None:
+        intervals.append(current_end - current_start)
+
+    return intervals
 
 
 def get_alignment_summary(alignment: AlignmentResult) -> dict:
